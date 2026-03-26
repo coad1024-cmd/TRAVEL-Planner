@@ -1,0 +1,26 @@
+{
+  "name": "travel-system",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@10.33.0",
+  "scripts": {
+    "build": "pnpm -r build",
+    "dev": "pnpm -r --parallel dev",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "acceptance": "node packages/orchestrator/dist/tests/acceptance.js",
+    "cli": "node packages/orchestrator/dist/cli.js",
+    "db:generate": "prisma generate --schema=prisma/schema.prisma",
+    "db:migrate": "prisma migrate dev --schema=prisma/schema.prisma",
+    "db:seed": "ts-node prisma/seed.ts",
+    "rag:seed": "python3 packages/rag-pipeline/src/ingest.py --seed",
+    "rag:serve": "uvicorn packages.rag_pipeline.src.retrieval_service:app --host 0.0.0.0 --port 8001 --reload",
+    "webhook": "node packages/webhook-ingress/dist/index.js",
+    "scheduler": "node packages/scheduler/dist/index.js"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "@types/node": "^20.12.7"
+  }
+}

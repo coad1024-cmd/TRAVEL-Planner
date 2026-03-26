@@ -1,0 +1,178 @@
+// PostgreSQL state store for the Multi-Agent Travel System
+// Tables: travelers, trips, trip_segments, agent_messages, expenses, documents, feedback, claims
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Traveler {
+  id               String   @id @default(uuid())
+  name             String
+  email            String   @unique
+  phone            String
+  dietary          String[] // array of dietary restrictions
+  allergies        String[]
+  roomPreferences  Json     @default("{}")
+  activityStyle    String   @default("moderate")
+  budgetMin        Float    @default(0)
+  budgetMinCurrency String  @default("INR")
+  budgetMax        Float    @default(500000)
+  budgetMaxCurrency String  @default("INR")
+  companions       Json     @default("[]")
+  loyaltyTier      String   @default("bronze") // bronze | silver | gold | platinum
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  trips     Trip[]
+  documents TravelerDocument[]
+  expenses  Expense[]
+  feedback  Feedback[]
+  claims    Claim[]
+
+  @@map("travelers")
+}
+
+model Trip {
+  id          String   @id @default(uuid())
+  travelerId  String
+  destination String
+  dateStart   String   // ISO date
+  dateEnd     String
+  budgetAmount Float
+  budgetCurrency String
+  partySize   Int      @default(1)
+  purpose     String   // honeymoon | business | family | adventure | solo | group
+  preferences Json     @default("{}")
+  status      String   @default("planning") // planning | confirmed | active | completed | cancelled
+  itinerary   Json?    // ItineraryDay[] JSON blob
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  traveler    Traveler      @relation(fields: [travelerId], references: [id])
+  segments    TripSegment[]
+  agentLogs   AgentLog[]
+  expenses    Expense[]
+  feedback    Feedback[]
+  claims      Claim[]
+
+  @@map("trips")
+}
+
+model TripSegment {
+  id          String   @id @default(uuid())
+  tripId      String
+  dayNumber   Int
+  segmentDate String   // ISO date
+  segmentType String   // transport | accommodation | excursion | dining
+  provider    String?
+  bookingRef  String?
+  status      String   @default("pending") // pending | confirmed | cancelled
+  costAmount  Float    @default(0)
+  costCurrency String  @default("INR")
+  details     Json     // segment-specific JSON matching segment schema
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  trip Trip @relation(fields: [tripId], references: [id])
+
+  @@map("trip_segments")
+}
+
+model AgentLog {
+  id                      String   @id @default(uuid())
+  tripId                  String?
+  fromAgent               String
+  toAgent                 String
+  messageType             String   // task_request | task_response | error | escalation | event
+  correlationId           String
+  payload                 Json
+  confidence              Float    @default(1.0)
+  requiresHumanConfirmation Boolean @default(false)
+  errors                  String[]
+  timestamp               DateTime @default(now())
+
+  trip Trip? @relation(fields: [tripId], references: [id])
+
+  @@index([correlationId])
+  @@index([tripId])
+  @@map("agent_messages")
+}
+
+model Expense {
+  id           String   @id @default(uuid())
+  tripId       String
+  travelerId   String
+  category     String   // transport | accommodation | excursions | food | contingency
+  description  String
+  amount       Float
+  currency     String   @default("INR")
+  paymentMethod String  @default("unknown")
+  receiptData  Json?    // Mindee OCR output
+  createdAt    DateTime @default(now())
+
+  trip     Trip     @relation(fields: [tripId], references: [id])
+  traveler Traveler @relation(fields: [travelerId], references: [id])
+
+  @@map("expenses")
+}
+
+model TravelerDocument {
+  id          String   @id @default(uuid())
+  travelerId  String
+  documentType String  // passport | visa | insurance | vaccination
+  documentNumber String // stored encrypted in production (AES-256-GCM)
+  country     String
+  expiry      String   // ISO date
+  encryptedData String? // AES-256-GCM encrypted blob for sensitive fields
+  iv          String?  // Encryption IV
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  traveler Traveler @relation(fields: [travelerId], references: [id])
+
+  @@map("documents")
+}
+
+model Feedback {
+  id          String   @id @default(uuid())
+  tripId      String
+  travelerId  String
+  segmentType String   // accommodation | excursion | transport | overall
+  segmentId   String?  // references TripSegment
+  rating      Int      // 1-5
+  comment     String?
+  ragIngested Boolean  @default(false) // true when ingested into traveler_reviews RAG
+  createdAt   DateTime @default(now())
+
+  trip     Trip     @relation(fields: [tripId], references: [id])
+  traveler Traveler @relation(fields: [travelerId], references: [id])
+
+  @@map("feedback")
+}
+
+model Claim {
+  id           String   @id @default(uuid())
+  tripId       String
+  travelerId   String
+  vendor       String
+  issue        String
+  amount       Float?
+  currency     String   @default("INR")
+  status       String   @default("open") // open | submitted | resolved | rejected
+  claimDraft   String?  // generated email/form draft
+  submittedAt  DateTime?
+  resolvedAt   DateTime?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  trip     Trip     @relation(fields: [tripId], references: [id])
+  traveler Traveler @relation(fields: [travelerId], references: [id])
+
+  @@map("claims")
+}

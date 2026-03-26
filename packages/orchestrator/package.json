@@ -1,0 +1,25 @@
+{
+  "name": "@travel/orchestrator",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/index.ts",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "cli": "ts-node src/cli.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.36.3",
+    "@modelcontextprotocol/sdk": "^1.9.0",
+    "@travel/shared": "workspace:*",
+    "zod": "^3.23.4"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.5",
+    "@types/node": "^20.12.7",
+    "ts-node": "^10.9.2"
+  }
+}
