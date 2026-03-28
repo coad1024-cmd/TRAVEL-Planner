@@ -9,12 +9,18 @@ const cache = new LRUCache<unknown>(200, 24 * 60 * 60 * 1000); // 24hr
 // Hardcoded seeded database for India / Jammu & Kashmir
 // ============================================================
 
+// #13: Staleness metadata — every record must carry a last_verified date
+// Alert if any record is >30 days old
+const STALENESS_THRESHOLD_DAYS = 30;
+const DATA_SEEDED_DATE = '2026-01-15'; // ISO date this seed data was last verified
+
 interface EmbassyInfo {
   name: string;
   address: string;
   phone: string;
   emergency_phone: string;
   hours: string;
+  last_verified: string; // ISO date
 }
 
 interface EmergencyNumbers {
@@ -22,6 +28,7 @@ interface EmergencyNumbers {
   ambulance: string;
   fire: string;
   coast_guard?: string;
+  last_verified: string; // ISO date
 }
 
 interface SafeZone {
@@ -38,6 +45,7 @@ const EMBASSIES: Record<string, EmbassyInfo> = {
     phone: '+91-11-2419-8000',
     emergency_phone: '+91-11-2419-8000',
     hours: 'Mon-Fri 08:30-17:00 IST (Emergency: 24/7)',
+    last_verified: DATA_SEEDED_DATE,
   },
   GB: {
     name: 'British High Commission New Delhi',
@@ -45,6 +53,7 @@ const EMBASSIES: Record<string, EmbassyInfo> = {
     phone: '+91-11-2419-2100',
     emergency_phone: '+91-11-2419-2100',
     hours: 'Mon-Thu 08:00-16:30, Fri 08:00-13:00 IST',
+    last_verified: DATA_SEEDED_DATE,
   },
   AU: {
     name: 'Australian High Commission New Delhi',
@@ -52,6 +61,7 @@ const EMBASSIES: Record<string, EmbassyInfo> = {
     phone: '+91-11-4139-9900',
     emergency_phone: '+61-2-6261-3305',
     hours: 'Mon-Fri 08:30-17:00 IST',
+    last_verified: DATA_SEEDED_DATE,
   },
   CA: {
     name: 'High Commission of Canada New Delhi',
@@ -59,6 +69,7 @@ const EMBASSIES: Record<string, EmbassyInfo> = {
     phone: '+91-11-4178-2000',
     emergency_phone: '+91-11-4178-2000',
     hours: 'Mon-Fri 08:00-16:30 IST',
+    last_verified: DATA_SEEDED_DATE,
   },
   DE: {
     name: 'German Embassy New Delhi',
@@ -66,6 +77,7 @@ const EMBASSIES: Record<string, EmbassyInfo> = {
     phone: '+91-11-4419-9199',
     emergency_phone: '+91-11-4419-9100',
     hours: 'Mon-Fri 08:30-12:30 IST',
+    last_verified: DATA_SEEDED_DATE,
   },
   FR: {
     name: 'French Embassy New Delhi',
@@ -73,6 +85,7 @@ const EMBASSIES: Record<string, EmbassyInfo> = {
     phone: '+91-11-4319-6100',
     emergency_phone: '+91-11-4319-6100',
     hours: 'Mon-Fri 09:00-12:30 IST',
+    last_verified: DATA_SEEDED_DATE,
   },
   IN: {
     name: 'Ministry of External Affairs (India)',
@@ -80,6 +93,7 @@ const EMBASSIES: Record<string, EmbassyInfo> = {
     phone: '+91-11-2301-6075',
     emergency_phone: '1800-11-3090',
     hours: 'Mon-Fri 09:00-17:30 IST',
+    last_verified: DATA_SEEDED_DATE,
   },
   DEFAULT: {
     name: 'Contact your country\'s embassy in New Delhi',
@@ -87,14 +101,32 @@ const EMBASSIES: Record<string, EmbassyInfo> = {
     phone: 'See your country\'s embassy website',
     emergency_phone: '+91-11-2301-6075 (India MEA Helpline)',
     hours: 'Varies by embassy',
+    last_verified: DATA_SEEDED_DATE,
   },
 };
 
 const EMERGENCY_NUMBERS: Record<string, EmergencyNumbers> = {
-  IN: { police: '100', ambulance: '108', fire: '101', coast_guard: '1554' },
-  JK: { police: '100', ambulance: '108', fire: '101' }, // J&K specific
-  DEFAULT: { police: '100', ambulance: '108', fire: '101' },
+  IN: { police: '100', ambulance: '108', fire: '101', coast_guard: '1554', last_verified: DATA_SEEDED_DATE },
+  JK: { police: '100', ambulance: '108', fire: '101', last_verified: DATA_SEEDED_DATE },
+  DEFAULT: { police: '100', ambulance: '108', fire: '101', last_verified: DATA_SEEDED_DATE },
 };
+
+// #13: Staleness check — warn if any record is older than threshold
+function checkStaleness(records: Record<string, { last_verified: string }>, label: string): void {
+  const thresholdMs = STALENESS_THRESHOLD_DAYS * 24 * 60 * 60 * 1000;
+  const now = Date.now();
+  for (const [key, record] of Object.entries(records)) {
+    const age = now - new Date(record.last_verified).getTime();
+    if (age > thresholdMs) {
+      const daysSince = Math.floor(age / (24 * 60 * 60 * 1000));
+      console.error(`[mcp-emergency] STALE DATA: ${label}[${key}] last verified ${daysSince} days ago (threshold: ${STALENESS_THRESHOLD_DAYS} days). Verify and update from official sources.`);
+    }
+  }
+}
+
+// Run staleness check on startup
+checkStaleness(EMBASSIES, 'EMBASSIES');
+checkStaleness(EMERGENCY_NUMBERS, 'EMERGENCY_NUMBERS');
 
 const PAHALGAM_SAFE_ZONES: SafeZone[] = [
   {
@@ -159,6 +191,14 @@ const PAHALGAM_CENTER = { lat: 34.0161, lng: 75.3147 };
 
 const server = new McpServer({ name: 'mcp-emergency', version: '1.0.0' });
 
+function buildStalenessWarning(lastVerified: string): string | undefined {
+  const ageMs = Date.now() - new Date(lastVerified).getTime();
+  const ageDays = Math.floor(ageMs / (24 * 60 * 60 * 1000));
+  return ageDays > STALENESS_THRESHOLD_DAYS
+    ? `WARNING: This data was last verified ${ageDays} days ago. Verify from official sources before use in a live emergency.`
+    : undefined;
+}
+
 server.tool(
   'get_embassy',
   'Get embassy contact details for a country (in India).',
@@ -172,8 +212,12 @@ server.tool(
     }
 
     const embassy = EMBASSIES[code] ?? EMBASSIES.DEFAULT;
-    cache.set(cacheKey, embassy);
-    return { content: [{ type: 'text', text: JSON.stringify(embassy) }] };
+    const result = {
+      ...embassy,
+      staleness_warning: buildStalenessWarning(embassy.last_verified),
+    };
+    cache.set(cacheKey, result);
+    return { content: [{ type: 'text', text: JSON.stringify(result) }] };
   }
 );
 
@@ -190,7 +234,11 @@ server.tool(
     }
 
     const numbers = EMERGENCY_NUMBERS[code] ?? EMERGENCY_NUMBERS.DEFAULT;
-    const result = { country_code: code, ...numbers };
+    const result = {
+      country_code: code,
+      ...numbers,
+      staleness_warning: buildStalenessWarning(numbers.last_verified),
+    };
     cache.set(cacheKey, result);
     return { content: [{ type: 'text', text: JSON.stringify(result) }] };
   }

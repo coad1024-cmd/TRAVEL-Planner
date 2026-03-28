@@ -9,6 +9,26 @@ import { RagRetrieveInputSchema } from '@travel/shared';
 
 const RAG_SERVICE_URL = process.env.RAG_SERVICE_URL ?? 'http://localhost:8001';
 
+// #5: PII redaction patterns — applied before traveler_reviews are returned to agents
+const PII_PATTERNS: Array<{ pattern: RegExp; replacement: string }> = [
+  { pattern: /\b[A-Z]{1,2}[0-9]{7}\b/g, replacement: '[PASSPORT_NUMBER]' },           // Passport numbers (J1234567)
+  { pattern: /\b[0-9]{10}\b/g, replacement: '[PHONE_NUMBER]' },                          // 10-digit phone numbers
+  { pattern: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g, replacement: '[EMAIL]' },
+  { pattern: /\b[0-9]{12}\b/g, replacement: '[AADHAAR_NUMBER]' },                        // Aadhaar
+  { pattern: /\bcard[:\s]+[0-9]{4}[\s-]?[0-9]{4}[\s-]?[0-9]{4}[\s-]?[0-9]{4}\b/gi, replacement: 'card: [CARD_NUMBER]' },
+];
+
+function redactPii(text: string): string {
+  let redacted = text;
+  for (const { pattern, replacement } of PII_PATTERNS) {
+    redacted = redacted.replace(pattern, replacement);
+  }
+  return redacted;
+}
+
+// Critical collections requiring cross-validation before return
+const CRITICAL_COLLECTIONS = new Set(['regulatory', 'emergency_protocols', 'health_safety']);
+
 interface RagChunk {
   id: string;
   content: string;
@@ -63,6 +83,44 @@ server.tool(
         parsed.filters,
         parsed.top_k,
       );
+
+      // #5: PII redaction for traveler_reviews collection
+      if (parsed.collection === 'traveler_reviews') {
+        result.chunks = result.chunks.map(chunk => ({
+          ...chunk,
+          content: redactPii(chunk.content),
+        }));
+      }
+
+      // #7: Flag low-confidence chunks from critical collections for human review
+      if (CRITICAL_COLLECTIONS.has(parsed.collection)) {
+        const CONFIDENCE_THRESHOLD = 0.75;
+        result.chunks = result.chunks.map(chunk => {
+          const metaConfidence = (chunk.metadata?.confidence_score as number | undefined) ?? 1.0;
+          if (metaConfidence < CONFIDENCE_THRESHOLD) {
+            return {
+              ...chunk,
+              metadata: {
+                ...chunk.metadata,
+                requires_human_review: true,
+                review_reason: `Confidence ${metaConfidence.toFixed(2)} below threshold ${CONFIDENCE_THRESHOLD} for critical collection '${parsed.collection}'`,
+              },
+            };
+          }
+          // Cross-validate: if similarity_score is below 0.5, this chunk may not be relevant — flag it
+          if (chunk.similarity_score < 0.5) {
+            return {
+              ...chunk,
+              metadata: {
+                ...chunk.metadata,
+                requires_human_review: true,
+                review_reason: `Low similarity score ${chunk.similarity_score.toFixed(2)} for critical collection — verify accuracy before acting`,
+              },
+            };
+          }
+          return chunk;
+        });
+      }
 
       return {
         content: [{

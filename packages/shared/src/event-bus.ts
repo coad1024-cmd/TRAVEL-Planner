@@ -149,3 +149,74 @@ export async function closeEventBus(): Promise<void> {
   publisher = null;
   subscriber = null;
 }
+
+// ─────────────────────────────────────────────
+// #6: Service health registry
+// Each MCP server calls updateServiceHealth() on startup and periodically.
+// The Synthesizer calls getServiceHealth() before dispatching to a server.
+// ─────────────────────────────────────────────
+
+export interface ServiceHealthRecord {
+  server_name: string;
+  status: 'healthy' | 'degraded' | 'down';
+  last_heartbeat: string; // ISO datetime
+  version?: string;
+  error?: string;
+}
+
+const HEALTH_KEY_PREFIX = 'mcp:health:';
+const HEALTH_TTL_SECONDS = 120; // server must heartbeat within 2 minutes
+
+export async function updateServiceHealth(
+  serverName: string,
+  status: ServiceHealthRecord['status'],
+  version?: string,
+  error?: string,
+): Promise<void> {
+  const client = getPublisher();
+  const record: ServiceHealthRecord = {
+    server_name: serverName,
+    status,
+    last_heartbeat: new Date().toISOString(),
+    version,
+    error,
+  };
+  try {
+    await client.setex(`${HEALTH_KEY_PREFIX}${serverName}`, HEALTH_TTL_SECONDS, JSON.stringify(record));
+  } catch {
+    // Health registry is best-effort — never fail the main flow
+  }
+}
+
+export async function getServiceHealth(serverName: string): Promise<ServiceHealthRecord | null> {
+  const client = getPublisher();
+  try {
+    const raw = await client.get(`${HEALTH_KEY_PREFIX}${serverName}`);
+    if (!raw) return null;
+    return JSON.parse(raw) as ServiceHealthRecord;
+  } catch {
+    return null;
+  }
+}
+
+export async function getAllServiceHealth(): Promise<ServiceHealthRecord[]> {
+  const client = getPublisher();
+  try {
+    const keys = await client.keys(`${HEALTH_KEY_PREFIX}*`);
+    if (keys.length === 0) return [];
+    const values = await client.mget(...keys);
+    return values
+      .filter((v): v is string => v !== null)
+      .map(v => JSON.parse(v) as ServiceHealthRecord);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * #6: Trace a correlation_id through the system log.
+ * Each agent should prefix its console output with [corr:<id>] for traceability.
+ */
+export function traceLog(correlationId: string, agent: string, message: string): void {
+  console.log(`[corr:${correlationId}] [${agent}] ${message}`);
+}

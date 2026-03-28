@@ -29,6 +29,15 @@ const transactions = new Map<string, Array<{
   status: string;
 }>>();
 
+// #3: Idempotency key store — maps idempotency_key → payment result
+// Key format: trip_id + segment_id + attempt_number
+const idempotencyStore = new Map<string, {
+  payment_id: string;
+  status: string;
+  amount: Money;
+  processed_at: string;
+}>();
+
 async function stripeCreatePayment(
   amount: number, currency: string, description: string
 ): Promise<{ payment_id: string; status: string; amount: Money }> {
@@ -147,8 +156,17 @@ server.tool(
     currency: z.string().length(3).describe('Currency code (ISO 4217)'),
     method: z.string().describe('Payment method (e.g. card, upi, bank_transfer)'),
     description: z.string().describe('Payment description'),
+    // #3: Idempotency key — format: {trip_id}:{segment_id}:{attempt_number}
+    idempotency_key: z.string().describe('Idempotency key to prevent double-charging on retries (format: trip_id:segment_id:attempt)'),
   },
   async (input) => {
+    // #3: Check idempotency store before calling Stripe
+    const existing = idempotencyStore.get(input.idempotency_key);
+    if (existing) {
+      console.error(`[mcp-payments] Duplicate request detected — returning cached result for key: ${input.idempotency_key}`);
+      return { content: [{ type: 'text', text: JSON.stringify({ ...existing, idempotent: true }) }] };
+    }
+
     if (!STRIPE_KEY) {
       const paymentId = generateId('pi');
       const result = {
@@ -157,15 +175,17 @@ server.tool(
         amount: { amount: input.amount, currency: input.currency.toUpperCase() } as Money,
         mock: true,
       };
-      // Store mock transaction
+      idempotencyStore.set(input.idempotency_key, { ...result, processed_at: new Date().toISOString() });
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     }
 
     try {
       const result = await stripeCreatePayment(input.amount, input.currency, input.description);
+      idempotencyStore.set(input.idempotency_key, { ...result, processed_at: new Date().toISOString() });
       return { content: [{ type: 'text', text: JSON.stringify(result) }] };
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      // Do NOT store failed payments in idempotency cache — allow retry
       return {
         content: [{ type: 'text', text: JSON.stringify({ error: true, message: msg }) }],
         isError: true,

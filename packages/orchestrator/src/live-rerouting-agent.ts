@@ -4,8 +4,8 @@
  * Never makes changes without traveler approval (except life-safety emergencies).
  */
 import Anthropic from '@anthropic-ai/sdk';
-import type { TravelSystemEvent, ItineraryDay } from '@travel/shared';
-import { subscribeToEvents, publishEvent } from '@travel/shared';
+import type { TravelSystemEvent, ItineraryDay, ReroutingTimeoutPolicy } from '@travel/shared';
+import { DEFAULT_REROUTING_POLICIES, subscribeToEvents, publishEvent } from '@travel/shared';
 import { callMcpTool } from './mcp-client.js';
 
 const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -163,8 +163,30 @@ export async function applyRerouting(
   return currentItinerary; // Return modified itinerary (simplified)
 }
 
+// #4: Pending approval queue — keyed by trip_id + event timestamp
+interface PendingApproval {
+  tripId: string;
+  proposal: ReroutingProposal;
+  itinerary: ItineraryDay[];
+  received_at: number; // Date.now()
+  policy: ReroutingTimeoutPolicy;
+  timer: ReturnType<typeof setTimeout>;
+}
+const pendingApprovals = new Map<string, PendingApproval>();
+
+function getTimeoutPolicy(urgency: ReroutingProposal['urgency']): ReroutingTimeoutPolicy {
+  const severityMap: Record<string, ReroutingTimeoutPolicy['disruption_severity']> = {
+    critical: 'critical', high: 'high', medium: 'medium', low: 'low',
+  };
+  const severity = severityMap[urgency] ?? 'medium';
+  return DEFAULT_REROUTING_POLICIES.find(p => p.disruption_severity === severity)!;
+}
+
 /**
  * Start event subscription for live re-routing.
+ * #4: All non-critical proposals now carry a timeout. On expiry, the policy
+ * (auto_execute or queue_and_alert) is enforced so re-routing never hangs
+ * indefinitely when the traveler is offline.
  */
 export function startLiveReroutingSubscription(
   getItinerary: (tripId: string) => Promise<ItineraryDay[]>,
@@ -182,19 +204,48 @@ export function startLiveReroutingSubscription(
 
       if (!proposal) return;
 
-      console.log(`[LiveRerouting] Proposal urgency: ${proposal.urgency}`);
+      const policy = getTimeoutPolicy(proposal.urgency);
+      console.log(`[LiveRerouting] Proposal urgency=${proposal.urgency} → timeout=${policy.timeout_minutes}min policy=${policy.policy_on_timeout}`);
 
       if (proposal.urgency === 'critical') {
-        // Auto-apply for life-safety emergencies; notify after
+        // Auto-apply immediately for life-safety; notify after
         await applyRerouting(event.trip_id, proposal, itinerary);
         await notifyTraveler(event.trip_id, `🚨 Emergency rerouting applied: ${proposal.message_to_traveler}`);
-      } else {
-        // Notify and await traveler approval
-        await notifyTraveler(
-          event.trip_id,
-          `⚠️ Disruption detected: ${proposal.message_to_traveler}\n\nProposed changes:\n${proposal.proposed_changes.map(c => `• ${c}`).join('\n')}\n\nTime change: ${proposal.time_delta_minutes > 0 ? '+' : ''}${proposal.time_delta_minutes} min | Cost change: ₹${proposal.cost_delta.amount}\n\nReply "ACCEPT" to apply these changes.`,
-        );
+        return;
       }
+
+      // Notify traveler and start timeout timer
+      const approvalKey = `${event.trip_id}:${event.timestamp}`;
+
+      await notifyTraveler(
+        event.trip_id,
+        `⚠️ Disruption detected: ${proposal.message_to_traveler}\n\nProposed changes:\n${proposal.proposed_changes.map(c => `• ${c}`).join('\n')}\n\nTime change: ${proposal.time_delta_minutes > 0 ? '+' : ''}${proposal.time_delta_minutes} min | Cost change: ₹${proposal.cost_delta.amount}\n\nReply "ACCEPT" to apply, or changes will be ${policy.policy_on_timeout === 'auto_execute' ? 'auto-applied' : 'queued'} in ${policy.timeout_minutes} minutes.`,
+      );
+
+      // #4: Schedule timeout action
+      const timer = setTimeout(async () => {
+        const pending = pendingApprovals.get(approvalKey);
+        if (!pending) return; // Already handled
+
+        pendingApprovals.delete(approvalKey);
+        console.log(`[LiveRerouting] Timeout for ${approvalKey} — executing policy: ${pending.policy.policy_on_timeout}`);
+
+        if (pending.policy.policy_on_timeout === 'auto_execute') {
+          await applyRerouting(event.trip_id, pending.proposal, pending.itinerary);
+          await notifyTraveler(
+            event.trip_id,
+            `ℹ️ No response received — rerouting has been auto-applied: ${pending.proposal.message_to_traveler}`,
+          );
+        } else {
+          // queue_and_alert: keep queued, re-notify when traveler reconnects
+          await notifyTraveler(
+            event.trip_id,
+            `⚠️ Queued rerouting awaiting your decision: ${pending.proposal.message_to_traveler}\n\nReply "ACCEPT" to apply or "REJECT" to dismiss.`,
+          );
+        }
+      }, policy.timeout_minutes * 60 * 1000);
+
+      pendingApprovals.set(approvalKey, { tripId: event.trip_id, proposal, itinerary, received_at: Date.now(), policy, timer });
     },
     'live-rerouting-consumer',
   ).catch(err => {
@@ -202,4 +253,16 @@ export function startLiveReroutingSubscription(
   });
 
   console.log('[LiveRerouting] Subscribed to disruption events');
+}
+
+/**
+ * Called when traveler responds "ACCEPT" to a pending rerouting proposal.
+ */
+export async function acceptRerouting(approvalKey: string): Promise<boolean> {
+  const pending = pendingApprovals.get(approvalKey);
+  if (!pending) return false;
+  clearTimeout(pending.timer);
+  pendingApprovals.delete(approvalKey);
+  await applyRerouting(pending.tripId, pending.proposal, pending.itinerary);
+  return true;
 }

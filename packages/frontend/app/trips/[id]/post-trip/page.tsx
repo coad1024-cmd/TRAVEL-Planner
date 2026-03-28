@@ -2,6 +2,8 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { ArrowLeft, BarChart3, Star, Loader2, PartyPopper, MapPin, Calendar, Users, Wallet } from 'lucide-react';
+import { cn } from '../../../../lib/utils';
 
 interface SegmentFeedback {
   id: string;
@@ -23,10 +25,19 @@ const INITIAL_SEGMENTS: SegmentFeedback[] = [
   { id: 'flight-out', label: 'Air India AI-824 (SXR → DEL)', type: 'Transport', rating: 0, comment: '' },
 ];
 
+const TYPE_COLORS: Record<string, string> = {
+  Transport: 'bg-primary/10 text-primary',
+  Accommodation: 'bg-success/10 text-success',
+  Excursion: 'bg-warning/10 text-warning',
+  Dining: 'bg-accent/20 text-accent-foreground',
+};
+
+const RATING_LABELS = ['', 'Poor', 'Fair', 'Good', 'Very Good', 'Excellent'];
+
 function StarRating({ value, onChange }: { value: number; onChange: (v: number) => void }) {
   const [hover, setHover] = useState(0);
   return (
-    <div className="flex gap-1">
+    <div className="flex gap-0.5">
       {[1, 2, 3, 4, 5].map((star) => (
         <button
           key={star}
@@ -34,34 +45,29 @@ function StarRating({ value, onChange }: { value: number; onChange: (v: number) 
           onClick={() => onChange(star)}
           onMouseEnter={() => setHover(star)}
           onMouseLeave={() => setHover(0)}
-          className="text-2xl focus:outline-none transition-transform hover:scale-110"
+          className="p-0.5 focus:outline-none transition-transform hover:scale-110 active:scale-95"
         >
-          <span className={star <= (hover || value) ? 'text-yellow-400' : 'text-gray-200'}>★</span>
+          <Star
+            className={cn(
+              'h-6 w-6 transition-colors',
+              star <= (hover || value) ? 'fill-warning text-warning' : 'text-border fill-transparent'
+            )}
+          />
         </button>
       ))}
     </div>
   );
 }
 
-const SEGMENT_ICONS: Record<string, string> = {
-  Transport: '✈️',
-  Accommodation: '🏨',
-  Excursion: '🏔️',
-  Dining: '🍽️',
-};
-
 export default function PostTripPage({ params }: { params: { id: string } }) {
   const [segments, setSegments] = useState<SegmentFeedback[]>(INITIAL_SEGMENTS);
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  function updateRating(id: string, rating: number) {
-    setSegments((prev) => prev.map((s) => (s.id === id ? { ...s, rating } : s)));
-  }
-
-  function updateComment(id: string, comment: string) {
-    setSegments((prev) => prev.map((s) => (s.id === id ? { ...s, comment } : s)));
-  }
+  const ratedCount = segments.filter((s) => s.rating > 0).length;
+  const avgRating = ratedCount > 0
+    ? (segments.reduce((sum, s) => sum + s.rating, 0) / ratedCount).toFixed(1)
+    : '—';
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -71,64 +77,52 @@ export default function PostTripPage({ params }: { params: { id: string } }) {
     setSubmitting(false);
   }
 
-  const ratedCount = segments.filter((s) => s.rating > 0).length;
-  const avgRating =
-    ratedCount > 0
-      ? (segments.reduce((sum, s) => sum + s.rating, 0) / ratedCount).toFixed(1)
-      : '—';
-
   return (
     <div className="max-w-3xl mx-auto space-y-6">
       {/* Header */}
-      <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-        <div className="flex items-start justify-between">
+      <div className="bg-card rounded-2xl border border-border p-6">
+        <div className="flex items-start justify-between mb-6">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Post-Trip Summary</h1>
-            <p className="text-gray-500 mt-1">Pahalgam, Kashmir · April 10–16, 2026</p>
+            <h1 className="text-2xl font-bold text-foreground">Post-Trip Summary</h1>
+            <div className="flex items-center gap-1.5 text-muted-foreground text-sm mt-1">
+              <MapPin className="h-3.5 w-3.5" />
+              Pahalgam, Kashmir
+            </div>
           </div>
           <Link
             href={`/trips/${params.id}`}
-            className="text-sm text-indigo-600 hover:text-indigo-800 transition-colors"
+            className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors min-h-[44px] items-center"
           >
-            ← Back to Itinerary
+            <ArrowLeft className="h-4 w-4" />
+            Back to itinerary
           </Link>
         </div>
 
-        {/* Trip Stats */}
-        <div className="grid grid-cols-4 gap-4 mt-6">
-          <div className="text-center p-3 bg-indigo-50 rounded-lg">
-            <div className="text-2xl font-bold text-indigo-700">7</div>
-            <div className="text-xs text-gray-500 mt-1">Days</div>
-          </div>
-          <div className="text-center p-3 bg-green-50 rounded-lg">
-            <div className="text-lg font-bold text-green-700">₹92,400</div>
-            <div className="text-xs text-gray-500 mt-1">Total Spent</div>
-          </div>
-          <div className="text-center p-3 bg-yellow-50 rounded-lg">
-            <div className="text-2xl font-bold text-yellow-700">{avgRating}</div>
-            <div className="text-xs text-gray-500 mt-1">Avg Rating</div>
-          </div>
-          <div className="text-center p-3 bg-purple-50 rounded-lg">
-            <div className="text-2xl font-bold text-purple-700">{ratedCount}/{segments.length}</div>
-            <div className="text-xs text-gray-500 mt-1">Reviewed</div>
-          </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <StatCard icon={<Calendar className="h-4 w-4 text-primary" />} value="7" label="Days" bg="bg-primary/5 border-primary/15" />
+          <StatCard icon={<Wallet className="h-4 w-4 text-success" />} value="₹92,400" label="Total Spent" bg="bg-success/5 border-success/15" />
+          <StatCard icon={<Star className="h-4 w-4 text-warning" />} value={avgRating} label="Avg Rating" bg="bg-warning/5 border-warning/15" />
+          <StatCard icon={<Users className="h-4 w-4 text-muted-foreground" />} value={`${ratedCount}/${segments.length}`} label="Reviewed" bg="bg-muted/50 border-border" />
         </div>
       </div>
 
       {submitted ? (
-        <div className="bg-green-50 border border-green-200 rounded-xl p-8 text-center">
-          <div className="text-5xl mb-3">🎉</div>
-          <h2 className="text-xl font-bold text-green-800 mb-2">Feedback Submitted!</h2>
-          <p className="text-green-700 text-sm mb-4">
-            Thank you for sharing your experience. Your feedback helps us improve future trips.
+        <div className="bg-card border border-success/20 rounded-2xl p-10 text-center animate-fade-in">
+          <div className="w-16 h-16 rounded-full bg-success/15 flex items-center justify-center mx-auto mb-4">
+            <PartyPopper className="h-8 w-8 text-success" />
+          </div>
+          <h2 className="text-xl font-bold text-foreground mb-2">Feedback Submitted!</h2>
+          <p className="text-muted-foreground text-sm mb-6 max-w-sm mx-auto">
+            Thank you for sharing your experience. Your feedback helps our AI plan even better trips.
           </p>
-          <div className="flex justify-center gap-3">
-            <button className="bg-green-600 hover:bg-green-700 text-white px-5 py-2 rounded-lg text-sm font-medium transition-colors">
-              📊 View Expense Report
+          <div className="flex justify-center gap-3 flex-wrap">
+            <button className="flex items-center gap-2 bg-primary text-primary-foreground px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-primary/90 transition-colors min-h-[44px]">
+              <BarChart3 className="h-4 w-4" />
+              View Expense Report
             </button>
             <Link
               href="/"
-              className="bg-white border border-green-300 text-green-700 hover:bg-green-50 px-5 py-2 rounded-lg text-sm font-medium transition-colors"
+              className="flex items-center gap-2 bg-card border border-border text-foreground px-5 py-2.5 rounded-lg text-sm font-medium hover:bg-muted transition-colors min-h-[44px]"
             >
               Plan Another Trip
             </Link>
@@ -136,61 +130,69 @@ export default function PostTripPage({ params }: { params: { id: string } }) {
         </div>
       ) : (
         <form onSubmit={handleSubmit} className="space-y-4">
-          <h2 className="text-lg font-semibold text-gray-900">Rate Your Experience</h2>
+          <h2 className="text-lg font-semibold text-foreground">Rate Your Experience</h2>
+
           {segments.map((seg) => (
-            <div key={seg.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-              <div className="flex items-center gap-2 mb-3">
-                <span className="text-lg">{SEGMENT_ICONS[seg.type] || '📍'}</span>
-                <div>
-                  <div className="font-medium text-gray-900">{seg.label}</div>
-                  <div className="text-xs text-gray-400">{seg.type}</div>
-                </div>
-              </div>
-              <div className="flex items-center gap-4">
-                <StarRating value={seg.rating} onChange={(v) => updateRating(seg.id, v)} />
-                {seg.rating > 0 && (
-                  <span className="text-xs text-gray-500">
-                    {['', 'Poor', 'Fair', 'Good', 'Very Good', 'Excellent'][seg.rating]}
+            <div key={seg.id} className="bg-card rounded-xl border border-border p-5 space-y-4 hover:border-primary/30 transition-colors">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <span className={cn('text-xs font-medium px-2 py-0.5 rounded-md shrink-0', TYPE_COLORS[seg.type] ?? 'bg-muted text-muted-foreground')}>
+                    {seg.type}
                   </span>
+                  <span className="text-sm font-semibold text-foreground">{seg.label}</span>
+                </div>
+                {seg.rating > 0 && (
+                  <span className="text-xs text-muted-foreground shrink-0">{RATING_LABELS[seg.rating]}</span>
                 )}
               </div>
+
+              <StarRating
+                value={seg.rating}
+                onChange={(v) => setSegments((prev) => prev.map((s) => s.id === seg.id ? { ...s, rating: v } : s))}
+              />
+
               <textarea
                 value={seg.comment}
-                onChange={(e) => updateComment(seg.id, e.target.value)}
+                onChange={(e) => setSegments((prev) => prev.map((s) => s.id === seg.id ? { ...s, comment: e.target.value } : s))}
                 placeholder="Leave a comment (optional)"
                 rows={2}
-                className="mt-3 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-700 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500 resize-none"
+                className="w-full bg-background border border-input rounded-lg px-3.5 py-2.5 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none transition-colors"
               />
             </div>
           ))}
 
-          <div className="flex gap-3">
+          <div className="flex gap-3 pt-2">
             <button
               type="submit"
               disabled={submitting || ratedCount === 0}
-              className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-300 text-white py-3 px-6 rounded-lg font-semibold text-sm transition-colors"
+              className="flex-1 flex items-center justify-center gap-2 bg-primary text-primary-foreground py-3 rounded-xl font-semibold text-sm hover:bg-primary/90 disabled:opacity-50 transition-colors shadow-sm min-h-[48px]"
             >
               {submitting ? (
-                <span className="flex items-center justify-center gap-2">
-                  <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  Submitting...
-                </span>
+                <><Loader2 className="h-4 w-4 animate-spin" /> Submitting…</>
               ) : (
                 'Submit Feedback'
               )}
             </button>
             <button
               type="button"
-              className="bg-white border border-gray-300 text-gray-700 hover:bg-gray-50 py-3 px-5 rounded-lg font-medium text-sm transition-colors"
+              className="flex items-center gap-2 bg-card border border-border text-foreground py-3 px-5 rounded-xl font-medium text-sm hover:bg-muted transition-colors min-h-[48px]"
             >
-              📊 View Expense Report
+              <BarChart3 className="h-4 w-4" />
+              Expense Report
             </button>
           </div>
         </form>
       )}
+    </div>
+  );
+}
+
+function StatCard({ icon, value, label, bg }: { icon: React.ReactNode; value: string; label: string; bg: string }) {
+  return (
+    <div className={cn('rounded-xl border p-4 flex flex-col gap-2', bg)}>
+      {icon}
+      <div className="text-xl font-bold text-foreground">{value}</div>
+      <div className="text-xs text-muted-foreground">{label}</div>
     </div>
   );
 }

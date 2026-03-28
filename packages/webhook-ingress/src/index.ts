@@ -12,6 +12,16 @@ const app = express();
 app.use(express.json({ limit: '1mb' }));
 app.use(express.raw({ type: 'application/json', limit: '1mb' }));
 
+// #5: Rate limiting middleware applied to all webhook endpoints
+app.use('/webhooks', (req: Request, res: Response, next: NextFunction) => {
+  const ip = (req.headers['x-forwarded-for'] as string ?? req.socket.remoteAddress ?? 'unknown').split(',')[0].trim();
+  if (!checkRateLimit(ip)) {
+    res.status(429).json({ error: 'Too many requests' });
+    return;
+  }
+  next();
+});
+
 // ─────────────────────────────────────────────
 // Dead-letter queue (in-memory for MVP; Redis list in production)
 // ─────────────────────────────────────────────
@@ -65,12 +75,59 @@ function verifyTelegramSecret(payload: string, signature: string): boolean {
   return expected === signature;
 }
 
+// #5: HMAC verification for FlightAware and Booking.com webhooks
+function verifyFlightAwareSignature(payload: string, signature: string): boolean {
+  const secret = process.env.FLIGHTAWARE_WEBHOOK_SECRET;
+  if (!secret) return true; // Skip in dev; enforce in production
+  const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+}
+
+function verifyBookingSignature(payload: string, signature: string): boolean {
+  const secret = process.env.BOOKING_WEBHOOK_SECRET;
+  if (!secret) return true;
+  const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
+  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+}
+
+// #5: Simple in-memory rate limiter — sliding window per IP
+const rateLimitMap = new Map<string, number[]>();
+const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = 100;
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const timestamps = (rateLimitMap.get(ip) ?? []).filter(t => now - t < RATE_LIMIT_WINDOW_MS);
+  if (timestamps.length >= RATE_LIMIT_MAX_REQUESTS) return false;
+  timestamps.push(now);
+  rateLimitMap.set(ip, timestamps);
+  return true;
+}
+
+// Cleanup rate limit map every 5 minutes to avoid memory growth
+setInterval(() => {
+  const now = Date.now();
+  for (const [ip, timestamps] of rateLimitMap) {
+    const fresh = timestamps.filter(t => now - t < RATE_LIMIT_WINDOW_MS);
+    if (fresh.length === 0) rateLimitMap.delete(ip);
+    else rateLimitMap.set(ip, fresh);
+  }
+}, 5 * 60_000);
+
 // ─────────────────────────────────────────────
 // Webhook handlers
 // ─────────────────────────────────────────────
 
 /** FlightAware AeroAPI — flight status changes */
 app.post('/webhooks/flightaware', async (req: Request, res: Response) => {
+  // #5: HMAC verification
+  const signature = req.headers['x-fa-signature'] as string ?? '';
+  const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+  if (!verifyFlightAwareSignature(rawBody, signature)) {
+    res.status(401).json({ error: 'Invalid FlightAware signature' });
+    return;
+  }
+
   const body = req.body as {
     ident?: string;
     status?: string;
@@ -99,6 +156,14 @@ app.post('/webhooks/flightaware', async (req: Request, res: Response) => {
 
 /** Booking.com / hotel confirmation callbacks */
 app.post('/webhooks/booking', async (req: Request, res: Response) => {
+  // #5: HMAC verification
+  const signature = req.headers['x-booking-signature'] as string ?? '';
+  const rawBody = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+  if (!verifyBookingSignature(rawBody, signature)) {
+    res.status(401).json({ error: 'Invalid Booking.com signature' });
+    return;
+  }
+
   const body = req.body as {
     reservation_id?: string;
     status?: string;

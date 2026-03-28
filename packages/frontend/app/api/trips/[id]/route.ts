@@ -413,6 +413,7 @@ const MOCK_BUDGET: BudgetDashboard = {
     contingency: { amount: 3000, currency: 'INR' },
   },
   alerts: ['Transport budget 80% used'],
+  ledger_version: 0,
 };
 
 export async function GET(

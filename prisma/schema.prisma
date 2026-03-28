@@ -53,12 +53,13 @@ model Trip {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  traveler    Traveler      @relation(fields: [travelerId], references: [id])
-  segments    TripSegment[]
-  agentLogs   AgentLog[]
-  expenses    Expense[]
-  feedback    Feedback[]
-  claims      Claim[]
+  traveler            Traveler           @relation(fields: [travelerId], references: [id])
+  segments            TripSegment[]
+  agentLogs           AgentLog[]
+  expenses            Expense[]
+  feedback            Feedback[]
+  claims              Claim[]
+  itineraryVersions   ItineraryVersion[] // #10: append-only version log
 
   @@map("trips")
 }
@@ -176,3 +177,27 @@ model Claim {
 
   @@map("claims")
 }
+
+// #10: Append-only itinerary version log.
+// Every mutation creates a new row; current itinerary = latest approved version.
+// Rollback = look up parent_version_id chain and restore snapshot.
+model ItineraryVersion {
+  id               String   @id @default(uuid())
+  tripId           String
+  parentVersionId  String?  // null for initial version
+  versionNumber    Int      @default(1)
+  itinerarySnapshot Json    // ItineraryDay[] JSON blob
+  mutationType     String   // initial | rerouting | user_modification | agent_correction
+  mutatedBy        String   // agent_id or 'user'
+  mutationReason   String
+  approved         Boolean  @default(true)
+  createdAt        DateTime @default(now())
+
+  trip Trip @relation(fields: [tripId], references: [id])
+
+  @@index([tripId, versionNumber])
+  @@map("itinerary_versions")
+}
+
+// Add relation back on Trip model (handled by Prisma via @@relation)
+

@@ -2,16 +2,94 @@
  * Traveler Profile Agent — long-term profile management.
  * Learns from every trip. Runs proactive scans.
  */
-import type { TravelerProfile } from '@travel/shared';
+import type { TravelerProfile, BayesianPreference, PreferenceObservation } from '@travel/shared';
 import { callMcpTool } from './mcp-client.js';
+
+// ─────────────────────────────────────────────
+// #9: Bayesian preference update model
+// ─────────────────────────────────────────────
+
+/**
+ * Update a Bayesian preference given a new observation.
+ * Single observation shifts estimate slightly (weight 0.2).
+ * Five+ consistent observations converge confidence toward 0.9+.
+ * Traveler's stated override always available via `stated_value`.
+ */
+function bayesianUpdate(
+  prior: BayesianPreference,
+  newValue: string,
+  tripId: string,
+  observationWeight = 0.2,
+): BayesianPreference {
+  const observation: PreferenceObservation = {
+    value: newValue,
+    observed_at: new Date().toISOString(),
+    trip_id: tripId,
+    confidence_weight: observationWeight,
+  };
+
+  const observations = [...prior.observations, observation];
+
+  // Count observations agreeing with the most common value
+  const valueCounts = new Map<string, number>();
+  for (const obs of observations) {
+    valueCounts.set(obs.value, (valueCounts.get(obs.value) ?? 0) + obs.confidence_weight);
+  }
+  const [[bestValue, bestWeight]] = [...valueCounts.entries()].sort((a, b) => b[1] - a[1]);
+  const totalWeight = [...valueCounts.values()].reduce((a, b) => a + b, 0);
+
+  // Confidence: fraction of weight agreeing with best value, scaled by observation count
+  // Caps at 0.95 — always leaves room for stated override
+  const rawConfidence = bestWeight / totalWeight;
+  const countFactor = Math.min(observations.length / 5, 1); // saturates at 5 observations
+  const newConfidence = Math.min(0.95, rawConfidence * countFactor + prior.confidence * (1 - countFactor) * 0.5);
+
+  return {
+    stated_value: prior.stated_value,
+    inferred_value: bestValue,
+    observations,
+    confidence: newConfidence,
+    last_updated: new Date().toISOString(),
+  };
+}
 
 /**
  * Update profile based on ACTUAL trip behavior vs stated preferences.
  * Called after each trip completes.
  */
+// In-memory Bayesian preference store — keyed by traveler_id
+// In production, persist these alongside the TravelerProfile in Postgres
+const bayesianPreferenceStore = new Map<string, {
+  activity_style: BayesianPreference;
+  budget_ceiling: BayesianPreference;
+}>();
+
+function getOrInitPreferences(
+  travelerId: string,
+  profile: TravelerProfile,
+): { activity_style: BayesianPreference; budget_ceiling: BayesianPreference } {
+  return bayesianPreferenceStore.get(travelerId) ?? {
+    activity_style: {
+      stated_value: profile.activity_style,
+      inferred_value: profile.activity_style,
+      observations: [],
+      confidence: 0.5,
+      last_updated: new Date().toISOString(),
+    },
+    budget_ceiling: {
+      stated_value: String(profile.budget_comfort_zone.max.amount),
+      inferred_value: String(profile.budget_comfort_zone.max.amount),
+      observations: [],
+      confidence: 0.5,
+      last_updated: new Date().toISOString(),
+    },
+  };
+}
+
 export async function updateProfileFromTrip(
   travelerId: string,
   tripData: {
+    trip_id: string;
     actual_activities: string[];
     stated_activity_level: string;
     actual_spend: number;
@@ -24,27 +102,46 @@ export async function updateProfileFromTrip(
 
   if (!profile) return;
 
+  // #9: Load existing Bayesian priors (or initialise from stated preferences)
+  const prefs = getOrInitPreferences(travelerId, profile);
   const updates: Partial<TravelerProfile> = {};
 
-  // Activity level adjustment: if they did more than stated, upgrade
+  // ── Activity style ─────────────────────────
   const hardActivities = tripData.actual_activities.filter(a =>
     /tulian|glacier|trek|hike|summit|peak/.test(a.toLowerCase())
   );
+  const observedActivityStyle = hardActivities.length >= 2 ? 'adventurous'
+    : hardActivities.length === 1 ? 'moderate'
+    : 'relaxed';
 
-  if (hardActivities.length >= 2 && tripData.stated_activity_level !== 'adventurous') {
-    updates.activity_style = 'adventurous';
-    console.log(`[ProfileAgent] Upgrading activity_style to adventurous (did ${hardActivities.length} hard activities)`);
+  // Weight hard evidence more strongly (0.3 vs 0.2 default)
+  prefs.activity_style = bayesianUpdate(prefs.activity_style, observedActivityStyle, tripData.trip_id, 0.3);
+
+  // Only update profile if we have sufficient confidence AND inferred differs from stored
+  if (prefs.activity_style.confidence >= 0.7 && prefs.activity_style.inferred_value !== profile.activity_style) {
+    updates.activity_style = prefs.activity_style.inferred_value;
+    console.log(`[ProfileAgent] Bayesian update activity_style: ${profile.activity_style} → ${prefs.activity_style.inferred_value} (confidence: ${prefs.activity_style.confidence.toFixed(2)}, obs: ${prefs.activity_style.observations.length})`);
   }
 
-  // Budget comfort zone adjustment
+  // ── Budget comfort zone ─────────────────────────
   const spendRatio = tripData.actual_spend / tripData.budget;
-  if (spendRatio > 0.95 && profile.budget_comfort_zone.max.amount < tripData.budget * 1.2) {
+  const observedBudgetCeiling = spendRatio > 0.95 ? String(Math.round(tripData.budget * 1.2))
+    : spendRatio < 0.5 ? String(Math.round(tripData.budget * 0.8))
+    : String(tripData.budget);
+
+  prefs.budget_ceiling = bayesianUpdate(prefs.budget_ceiling, observedBudgetCeiling, tripData.trip_id, 0.25);
+
+  const newCeiling = parseFloat(prefs.budget_ceiling.inferred_value);
+  if (prefs.budget_ceiling.confidence >= 0.6 && newCeiling !== profile.budget_comfort_zone.max.amount) {
     updates.budget_comfort_zone = {
       ...profile.budget_comfort_zone,
-      max: { amount: tripData.budget * 1.2, currency: 'INR' },
+      max: { amount: newCeiling, currency: 'INR' },
     };
-    console.log(`[ProfileAgent] Expanding budget ceiling to INR ${(tripData.budget * 1.2).toLocaleString()}`);
+    console.log(`[ProfileAgent] Bayesian update budget ceiling: ${profile.budget_comfort_zone.max.amount} → ${newCeiling} (confidence: ${prefs.budget_ceiling.confidence.toFixed(2)})`);
   }
+
+  // Persist updated preferences
+  bayesianPreferenceStore.set(travelerId, prefs);
 
   if (Object.keys(updates).length > 0) {
     await callMcpTool('mcp-profile', 'update_profile', {

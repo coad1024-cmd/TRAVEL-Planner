@@ -13,6 +13,23 @@
 import cron from 'node-cron';
 import { passportExpiryScan, priceWatch, morningBriefing, preFlightCheck, feedbackRequest, claimFollowup } from './workflows.js';
 
+// #13: Emergency data staleness validator
+// Calls mcp-emergency health check endpoint and alerts if any record is stale
+async function emergencyDataStalenessCheck(): Promise<void> {
+  console.log('[Scheduler] Running emergency data staleness validation...');
+  // In production: call mcp-emergency with a dedicated validate_staleness tool
+  // For now: spawn a quick check against the seeded data constants
+  const DATA_SEEDED_DATE = '2026-01-15';
+  const thresholdMs = 30 * 24 * 60 * 60 * 1000;
+  const ageMs = Date.now() - new Date(DATA_SEEDED_DATE).getTime();
+  if (ageMs > thresholdMs) {
+    const days = Math.floor(ageMs / (24 * 60 * 60 * 1000));
+    console.error(`[Scheduler] ALERT: Emergency contact data (embassies, emergency numbers) is ${days} days old. Update from official sources: MEA India https://www.mea.gov.in/`);
+  } else {
+    console.log('[Scheduler] Emergency data freshness OK.');
+  }
+}
+
 // Demo context for test scenario
 const DEMO_CTX = {
   tripId: '00000000-0000-0000-0000-000000000002',
@@ -58,6 +75,12 @@ const JOBS: ScheduledJob[] = [
     name: 'claim_followup',
     schedule: '0 10 * * 1', // every Monday at 10:00
     handler: () => claimFollowup(DEMO_CTX),
+  },
+  {
+    // #13: Weekly emergency data staleness check — Sundays at 02:00
+    name: 'emergency_data_staleness_check',
+    schedule: '0 2 * * 0',
+    handler: emergencyDataStalenessCheck,
   },
 ];
 

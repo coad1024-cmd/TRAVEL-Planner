@@ -59,6 +59,10 @@ export interface TransportSegment {
   reliability_score: number; // 0-1
   tunnel_dependent?: boolean;
   permit_required?: string;
+  // #14: dependency graph
+  upstream_dependencies?: string[]; // segment IDs that must complete before this
+  time_slot?: 'morning' | 'afternoon' | 'evening' | 'anchor'; // #2: constraint satisfaction
+  is_anchor?: boolean; // transport anchors are immovable
 }
 
 export interface AccommodationSegment {
@@ -73,6 +77,7 @@ export interface AccommodationSegment {
   cancellation_policy: string;
   suitability_score: number; // 0-1
   booking_ref?: string;
+  upstream_dependencies?: string[]; // #14
 }
 
 export interface ExcursionSegment {
@@ -87,6 +92,9 @@ export interface ExcursionSegment {
   guide_required: boolean;
   altitude_meters?: number;
   fitness_notes?: string;
+  upstream_dependencies?: string[]; // #14
+  time_slot?: 'morning' | 'afternoon' | 'evening'; // #2: constraint satisfaction bid
+  preferred_slots?: ('morning' | 'afternoon' | 'evening')[]; // ordered preference
 }
 
 export interface DiningSegment {
@@ -112,6 +120,15 @@ export interface BudgetDashboard {
     contingency: Money;
   };
   alerts: string[];
+  ledger_version: number; // #8: optimistic locking — increment on every write
+}
+
+// #5: Auth context carried on every inter-agent message
+export interface AgentAuthContext {
+  agent_id: string;
+  signed_at: string; // ISO datetime
+  token_hash: string; // SHA-256 of HMAC(agent_id + correlation_id + signed_at, AGENT_SHARED_SECRET)
+  expires_at: string; // ISO datetime — short-lived (default 5 min)
 }
 
 export interface AgentMessage {
@@ -124,6 +141,7 @@ export interface AgentMessage {
   confidence: number; // 0-1
   requires_human_confirmation: boolean;
   errors: string[];
+  auth_context?: AgentAuthContext; // #5: optional in dev, required in production
 }
 
 export interface TravelerProfile {
@@ -423,4 +441,96 @@ export interface DailyRiskAssessment {
   emergency_contacts: { type: string; number: string }[];
   required_precautions: string[];
   notes?: string;
+}
+
+// ============================================================
+// #11: Destination calendar — structured event model
+// ============================================================
+
+export type CalendarImpactType =
+  | 'accommodation_surge'
+  | 'road_closure'
+  | 'crowd_extreme'
+  | 'permit_required'
+  | 'restricted_access';
+
+export interface DestinationCalendarEvent {
+  event_name: string;
+  date_range: { start: string; end: string }; // ISO dates
+  impact_type: CalendarImpactType[];
+  affected_zones: string[]; // place names / route IDs
+  severity: 'advisory' | 'significant' | 'critical';
+  notes: string;
+}
+
+// ============================================================
+// #12: Pre-departure checklist
+// ============================================================
+
+export interface PreDepartureChecklistItem {
+  category: 'connectivity' | 'documents' | 'health' | 'logistics' | 'safety';
+  item: string;
+  required: boolean;
+  action_url?: string;
+}
+
+export interface PreDepartureChecklist {
+  trip_id: string;
+  generated_at: string;
+  items: PreDepartureChecklistItem[];
+}
+
+// ============================================================
+// #4: Offline decision policy for re-routing
+// ============================================================
+
+export type OfflineDecisionPolicy = 'auto_execute' | 'queue_and_alert' | 'escalate_to_human';
+
+export interface ReroutingTimeoutPolicy {
+  disruption_severity: 'low' | 'medium' | 'high' | 'critical';
+  timeout_minutes: number;
+  policy_on_timeout: OfflineDecisionPolicy;
+}
+
+// Default policies per severity level
+export const DEFAULT_REROUTING_POLICIES: ReroutingTimeoutPolicy[] = [
+  { disruption_severity: 'critical', timeout_minutes: 5,  policy_on_timeout: 'auto_execute' },
+  { disruption_severity: 'high',     timeout_minutes: 15, policy_on_timeout: 'auto_execute' },
+  { disruption_severity: 'medium',   timeout_minutes: 60, policy_on_timeout: 'queue_and_alert' },
+  { disruption_severity: 'low',      timeout_minutes: 240, policy_on_timeout: 'queue_and_alert' },
+];
+
+// ============================================================
+// #9: Bayesian preference model
+// ============================================================
+
+export interface PreferenceObservation {
+  value: string;
+  observed_at: string; // ISO datetime
+  trip_id: string;
+  confidence_weight: number; // 0-1, how strong this observation is
+}
+
+export interface BayesianPreference {
+  stated_value: string;
+  inferred_value: string; // current best estimate
+  observations: PreferenceObservation[];
+  confidence: number; // 0-1 — increases with consistent observations
+  last_updated: string;
+}
+
+// ============================================================
+// #10: Itinerary version record
+// ============================================================
+
+export interface ItineraryVersionRecord {
+  version_id: string;
+  trip_id: string;
+  parent_version_id: string | null; // null for initial version
+  version_number: number;
+  itinerary_snapshot: ItineraryDay[];
+  mutation_type: 'initial' | 'rerouting' | 'user_modification' | 'agent_correction';
+  mutated_by: string; // agent_id
+  mutation_reason: string;
+  created_at: string;
 }

@@ -7,6 +7,7 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { spawn, type ChildProcess } from 'child_process';
 import { resolve, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { updateServiceHealth, getServiceHealth } from '@travel/shared';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PACKAGES_ROOT = resolve(__dirname, '../../');
@@ -67,7 +68,30 @@ export async function connectToMcpServer(serverName: string): Promise<Client> {
   activeConnections.set(serverName, { client, process: proc, serverName });
   console.log(`[MCP] Connected to ${serverName}`);
 
+  // #6: Mark server as healthy on successful connection
+  await updateServiceHealth(serverName, 'healthy').catch(() => {});
+
   return client;
+}
+
+/**
+ * #6: Check health before dispatching — logs a warning if a server is degraded/down.
+ * Does not block the call; callers decide whether to proceed or skip.
+ */
+export async function checkServerHealth(serverName: string): Promise<boolean> {
+  const health = await getServiceHealth(serverName).catch(() => null);
+  if (!health) {
+    console.warn(`[MCP] No health record for ${serverName} — may not have registered yet`);
+    return true; // Optimistic: allow first connection
+  }
+  if (health.status === 'down') {
+    console.error(`[MCP] ${serverName} is DOWN (last heartbeat: ${health.last_heartbeat})`);
+    return false;
+  }
+  if (health.status === 'degraded') {
+    console.warn(`[MCP] ${serverName} is DEGRADED — proceeding with caution`);
+  }
+  return true;
 }
 
 export async function callMcpTool(
