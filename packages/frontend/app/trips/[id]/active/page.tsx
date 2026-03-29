@@ -58,12 +58,31 @@ const CATEGORY_COLORS: Record<string, string> = {
 function LiveStatusPanel({ tripId }: { tripId: string }) {
   const [status, setStatus] = useState<LiveStatus | null>(null);
   const [language, setLanguage] = useState('auto');
+  const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    fetch(`/api/trips/${tripId}/live-status`)
-      .then(r => r.json())
-      .then(setStatus)
-      .catch(() => {});
+    // SSE real-time connection (Issue #2)
+    const es = new EventSource(`/api/trips/${tripId}/stream`);
+
+    es.onopen = () => setConnected(true);
+
+    es.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.trip_id) setStatus(data);
+      } catch {}
+    };
+
+    es.onerror = () => {
+      setConnected(false);
+      // Fallback: one-shot poll
+      fetch(`/api/trips/${tripId}/live-status`)
+        .then(r => r.json())
+        .then(setStatus)
+        .catch(() => {});
+    };
+
+    return () => es.close();
   }, [tripId]);
 
   if (!status) return null;
@@ -79,6 +98,7 @@ function LiveStatusPanel({ tripId }: { tripId: string }) {
       <div className="px-5 py-3.5 border-b border-border flex items-center gap-2">
         <Bell className="h-4 w-4 text-warning" />
         <h2 className="text-sm font-semibold text-foreground">Live Updates</h2>
+        <span className={cn('w-2 h-2 rounded-full', connected ? 'bg-success animate-pulse' : 'bg-muted-foreground')} title={connected ? 'Connected' : 'Disconnected'} />
         <span className="w-5 h-5 rounded-full bg-warning text-warning-foreground text-xs font-bold flex items-center justify-center ml-auto">
           {unresolvedAlerts.length + delayedFlights.length + pendingHotelActions.length}
         </span>
