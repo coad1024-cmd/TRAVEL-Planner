@@ -50,12 +50,67 @@ class RetrieveResponse(BaseModel):
 
 @app.get("/health")
 def health() -> dict[str, str]:
-    return {"status": "ok", "service": "rag-retrieval"}
+    # Check if chromadb is alive optionally
+    try:
+        client = get_chroma_client()
+        client.heartbeat()
+        db_status = "connected"
+    except Exception:
+        db_status = "disconnected"
+    return {"status": "ok", "service": "rag-retrieval", "chromadb": db_status}
+
+
+@app.get("/metrics")
+def metrics() -> dict[str, Any]:
+    client = get_chroma_client()
+    embedding_fn = get_embedding_function()
+    stats = {}
+    for c in COLLECTIONS:
+        try:
+            coll = get_or_create_collection(client, c, embedding_fn)
+            stats[c] = coll.count()
+        except Exception:
+            stats[c] = -1
+    return {"collections_count": stats}
 
 
 @app.get("/collections")
 def list_collections() -> dict[str, list[str]]:
     return {"collections": COLLECTIONS}
+
+
+class DocumentUpdate(BaseModel):
+    collection: str
+    id: str
+    content: str
+    metadata: dict[str, Any]
+
+@app.put("/document")
+def update_document(update: DocumentUpdate):
+    client = get_chroma_client()
+    embedding_fn = get_embedding_function()
+    collection = get_or_create_collection(client, update.collection, embedding_fn)
+    try:
+        collection.update(
+            ids=[update.id],
+            documents=[update.content],
+            metadatas=[{k: str(v) for k, v in update.metadata.items()}],
+        )
+        return {"status": "success", "message": f"Updated document {update.id}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to update document: {e}")
+
+
+@app.delete("/document")
+def delete_document(collection_name: str, id: str):
+    client = get_chroma_client()
+    embedding_fn = get_embedding_function()
+    try:
+        collection = get_or_create_collection(client, collection_name, embedding_fn)
+        collection.delete(ids=[id])
+        return {"status": "success", "message": f"Deleted document {id}"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to delete document: {e}")
 
 
 @app.post("/retrieve", response_model=RetrieveResponse)
@@ -90,15 +145,20 @@ def retrieve(request: RetrieveRequest) -> RetrieveResponse:
         elif len(conditions) > 1:
             where_clause = {"$and": conditions}
 
-    try:
-        results = collection.query(
-            query_texts=[request.query],
-            n_results=min(request.top_k, max(collection.count(), 1)),
-            where=where_clause,
-            include=["documents", "metadatas", "distances"],
-        )
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Query failed: {e}")
+    import time
+    for attempt in range(3):
+        try:
+            results = collection.query(
+                query_texts=[request.query],
+                n_results=min(request.top_k, max(collection.count(), 1)),
+                where=where_clause,
+                include=["documents", "metadatas", "distances"],
+            )
+            break
+        except Exception as e:
+            if attempt == 2:
+                raise HTTPException(status_code=500, detail=f"Query failed after retries: {e}")
+            time.sleep(0.5)
 
     chunks: list[RetrievedChunk] = []
     ids = results.get("ids", [[]])[0]

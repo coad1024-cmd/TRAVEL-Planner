@@ -13,11 +13,17 @@ A production-grade multi-agent AI system that plans, books, manages, and support
 
 ## Quick Start
 
-### 1. Copy environment file
+### 1. Copy environment file & Start Docker Services
 ```bash
 cp .env.example .env
 # Fill in API keys (system works without them in mock mode)
 # Required for full functionality: ANTHROPIC_API_KEY
+```
+
+If you prefer to run PostgreSQL, Redis, and ChromaDB inside Docker containers instead of locally, start them now:
+```bash
+pnpm docker:up
+# You can tear them down later with: pnpm docker:down
 ```
 
 ### 2. Set up PostgreSQL Database

@@ -176,6 +176,14 @@ def seed_pahalgam_knowledge() -> None:
                 "content": "Pahalgam accommodation zones: Town center (budget to mid-range). East Lidder riverbank (mid to luxury). Aru Road corridor (boutique and glamping). Betaab Valley periphery (luxury resorts with valley views).",
                 "metadata": {"region": "pahalgam", "season": "all", "document_type": "accommodation_info", "confidence_score": "0.92"},
             },
+            {
+                "content": "Goa transport: Dabolim Airport (GOI) and Mopa Airport (GOX) serve the state. Taxis are unionized and expensive; renting a scooter is the most popular way to get around. Ferry services connect some islands.",
+                "metadata": {"region": "goa", "season": "all", "document_type": "road_report", "confidence_score": "0.95"},
+            },
+            {
+                "content": "Kerala backwaters: Alleppey (Alappuzha) is the hub for houseboat cruises. Best visited from September to March. Monsoon (June-August) offers lush greenery but boat rides may be restricted. Kochi airport (COK) is 2-3 hours away.",
+                "metadata": {"region": "kerala", "season": "all", "document_type": "local_tip", "confidence_score": "0.94"},
+            },
         ],
         "excursions": [
             {
