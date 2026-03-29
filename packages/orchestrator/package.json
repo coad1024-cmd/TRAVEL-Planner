@@ -15,11 +15,12 @@
     "@anthropic-ai/sdk": "^0.36.3",
     "@modelcontextprotocol/sdk": "^1.9.0",
     "@travel/shared": "workspace:*",
+    "ioredis": "^5.10.1",
     "zod": "^3.23.4"
   },
   "devDependencies": {
-    "typescript": "^5.4.5",
     "@types/node": "^20.12.7",
-    "ts-node": "^10.9.2"
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
   }
 }

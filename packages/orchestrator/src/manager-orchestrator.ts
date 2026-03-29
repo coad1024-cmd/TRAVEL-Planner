@@ -12,6 +12,7 @@ import { AgentRegistry } from './registry.js';
 import { orchestrateTrip } from './synthesizer.js';
 import { callMcpTool } from './mcp-client.js';
 import { randomUUID } from 'crypto';
+import { Redis } from 'ioredis';
 
 // ─── Types ───────────────────────────────────────────────
 
@@ -125,27 +126,44 @@ interface ManagerSession {
   registry: AgentRegistry | null;
 }
 
-const sessions = new Map<string, ManagerSession>();
+const REDIS_URL = process.env.REDIS_URL;
+const redis = REDIS_URL ? new Redis(REDIS_URL) : null;
+const SESSION_TTL = 24 * 60 * 60; // 24 hours
 
-function getOrCreateSession(travelerId: string): ManagerSession {
-  let session = sessions.get(travelerId);
-  if (!session) {
-    session = {
-      id: randomUUID(),
-      travelerId,
-      step: 'INIT',
-      transcript: [],
-      structured_inputs: {},
-      itinerary: null,
-      budget_dashboard: null,
-      payment_status: 'idle',
-      payment_method: null,
-      booking_confirmation: null,
-      registry: null,
-    };
-    sessions.set(travelerId, session);
+async function getOrCreateSession(travelerId: string): Promise<ManagerSession> {
+  if (redis) {
+    try {
+      const data = await redis.get(`session:${travelerId}`);
+      if (data) {
+        const parsed = JSON.parse(data) as ManagerSession;
+        parsed.registry = null;
+        return parsed;
+      }
+    } catch (err) {
+      console.error('[Manager] Failed to load session from Redis:', err);
+    }
   }
-  return session;
+
+  return {
+    id: randomUUID(),
+    travelerId,
+    step: 'INIT',
+    transcript: [],
+    structured_inputs: {},
+    itinerary: null,
+    budget_dashboard: null,
+    payment_status: 'idle',
+    payment_method: null,
+    booking_confirmation: null,
+    registry: null,
+  };
+}
+
+async function saveSession(session: ManagerSession): Promise<void> {
+  if (redis) {
+    const { registry, ...toSave } = session;
+    await redis.set(`session:${session.travelerId}`, JSON.stringify(toSave), 'EX', SESSION_TTL);
+  }
 }
 
 function buildVisualState(session: ManagerSession): VisualState {
@@ -273,7 +291,7 @@ export async function handleManagerMessage(
   options: { gps?: { lat: number; lng: number }; payment_method?: string } = {},
 ): Promise<ManagerResponse> {
   const correlationId = createCorrelationId();
-  const session = getOrCreateSession(travelerId);
+  const session = await getOrCreateSession(travelerId);
 
   // Add user turn
   addTurn(session, 'user', message);
@@ -521,6 +539,8 @@ export async function handleManagerMessage(
 
   addTurn(session, 'assistant', voiceText);
 
+  await saveSession(session);
+
   return {
     voice_text: voiceText,
     visual_state: buildVisualState(session),
@@ -603,12 +623,18 @@ function generateMockBudget(inputs: Partial<TripRequest>): any {
 
 // ─── Session management exports ──────────────────────────
 
-export function getManagerSession(travelerId: string): ManagerSession | undefined {
-  return sessions.get(travelerId);
+export async function getManagerSession(travelerId: string): Promise<ManagerSession | undefined> {
+  if (redis) {
+    const data = await redis.get(`session:${travelerId}`);
+    if (data) return JSON.parse(data) as ManagerSession;
+  }
+  return undefined;
 }
 
-export function resetManagerSession(travelerId: string): void {
-  sessions.delete(travelerId);
+export async function resetManagerSession(travelerId: string): Promise<void> {
+  if (redis) {
+    await redis.del(`session:${travelerId}`);
+  }
 }
 
 // ─── Process payment from UI ─────────────────────────────

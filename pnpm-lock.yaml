@@ -411,6 +411,9 @@ importers:
       '@travel/shared':
         specifier: workspace:*
         version: link:../shared
+      ioredis:
+        specifier: ^5.10.1
+        version: 5.10.1
       zod:
         specifier: ^3.23.4
         version: 3.25.76
