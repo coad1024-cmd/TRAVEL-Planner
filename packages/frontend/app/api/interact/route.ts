@@ -7,11 +7,13 @@ export async function POST(request: NextRequest) {
     const message: string = body.message || '';
     const travelerId: string = body.travelerId || 'default-traveler';
     const paymentMethod: string | undefined = body.payment_method;
+    const language: string = body.language || 'en';
 
-    console.log('[Interact API] Message:', message.slice(0, 80), '| Traveler:', travelerId);
+    console.log('[Interact API] Message:', message.slice(0, 80), '| Traveler:', travelerId, '| Lang:', language);
 
     const result = await handleManagerMessage(message, travelerId, {
       payment_method: paymentMethod,
+      language: language,
     });
 
     return NextResponse.json(result);

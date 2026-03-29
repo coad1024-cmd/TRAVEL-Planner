@@ -40,6 +40,7 @@ function createDefaultProfile(travelerId: string): TravelerProfile {
     documents: [],
     trip_history: [],
     loyalty_tier: 'bronze',
+    language: 'en',
     created_at: now,
     updated_at: now,
   };
@@ -67,6 +68,7 @@ const DEMO_PROFILE: TravelerProfile = {
   ],
   trip_history: ['trip-2024-goa', 'trip-2024-rajasthan'],
   loyalty_tier: 'silver',
+  language: 'hinglish',
   created_at: '2024-01-15T10:30:00Z',
   updated_at: new Date().toISOString(),
 };
