@@ -13,14 +13,19 @@
     "cli": "node packages/orchestrator/dist/cli.js",
     "db:generate": "prisma generate --schema=prisma/schema.prisma",
     "db:migrate": "prisma migrate dev --schema=prisma/schema.prisma",
-    "db:seed": "ts-node prisma/seed.ts",
+    "db:seed": "tsx prisma/seed.ts",
     "rag:seed": "python3 packages/rag-pipeline/src/ingest.py --seed",
     "rag:serve": "uvicorn packages.rag_pipeline.src.retrieval_service:app --host 0.0.0.0 --port 8001 --reload",
     "webhook": "node packages/webhook-ingress/dist/index.js",
     "scheduler": "node packages/scheduler/dist/index.js"
   },
   "devDependencies": {
-    "typescript": "^5.4.5",
-    "@types/node": "^20.12.7"
+    "@types/node": "^20.12.7",
+    "prisma": "^6.19.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.2"
   }
 }

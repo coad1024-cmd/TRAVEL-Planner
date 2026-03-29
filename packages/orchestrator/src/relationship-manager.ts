@@ -10,7 +10,17 @@ import { orchestrateTrip } from './synthesizer.js';
 import { callMcpTool } from './mcp-client.js';
 import { randomUUID } from 'crypto';
 
-const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+let _claude: Anthropic | null = null;
+function getClaude() {
+  console.log("[RM] getClaude() called. ANTHROPIC_API_KEY in process.env:", !!process.env.ANTHROPIC_API_KEY);
+  if (!_claude) {
+    if (!process.env.ANTHROPIC_API_KEY) {
+       console.warn('[RM] ANTHROPIC_API_KEY is not set in process.env');
+    }
+    _claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  }
+  return _claude;
+}
 
 const INTENT_CLASSIFICATION_PROMPT = `You are classifying a traveler's message intent.
 Respond with ONLY one of these exact strings (no other text):
@@ -23,13 +33,45 @@ GENERAL - chitchat, profile update, document upload, general question`;
 const RM_SYSTEM_PROMPT = `You are the traveler's dedicated personal travel assistant. You are warm,
 competent, and anticipatory — like a luxury hotel concierge who remembers your name and your coffee order.
 
-You maintain continuity across all their trips. You speak in first person as their personal assistant.
-You never mention internal system agents or technical details.
+CRITICAL: You are a voice-based assistant. Your responses will be spoken aloud to the traveler.
+- Keep responses brief and conversational (1-3 sentences max).
+- Avoid complex lists, tables, or markdown formatting.
+- Use natural language and clear pronunciation.
+- You speak in first person as their personal assistant.
+- You never mention internal system agents or technical details.
 
 When asked to plan a trip, respond warmly and confirm what you're going to do.
 For emergencies, respond immediately with urgency and empathy.
 For complaints, show empathy and immediately begin resolution process.
 Always keep the traveler informed but never overwhelm with details.`;
+
+const EXTRACTION_SYSTEM_PROMPT = `You are an expert travel data extractor. 
+Your task is to extract structured trip details from a conversation between a traveler and their assistant.
+
+Extract the following fields if present:
+- destination (string)
+- start_date (YYYY-MM-DD)
+- end_date (YYYY-MM-DD)
+- budget_amount (number)
+- budget_currency (string, e.g., INR, USD, EUR)
+- party_size (number)
+- purpose (one of: honeymoon, business, family, adventure, solo, group)
+- accommodation_style (string)
+- activity_level (relaxed, moderate, adventurous)
+- dietary_preferences (string)
+- must_include (array of strings)
+- avoid (array of strings)
+
+Respond with ONLY a JSON object containing these fields. If a field is missing, omit it from the JSON.
+Do not make up information. Use the ISO date format YYYY-MM-DD.`;
+
+type RmState = 
+  | 'IDLE'
+  | 'GATHERING_REQUIREMENTS'
+  | 'PLANNING_IN_PROGRESS'
+  | 'PLAN_PRESENTED'
+  | 'CONFIRMING_PAYMENT'
+  | 'BOOKING_COMPLETE';
 
 interface ConversationTurn {
   role: 'user' | 'assistant';
@@ -41,6 +83,8 @@ interface RmSession {
   history: ConversationTurn[];
   activeTripId?: string;
   lastIntent?: IntentClassification;
+  state: RmState;
+  pendingTripRequest?: Partial<TripRequest>;
 }
 
 // In-memory session store (Redis in production)
@@ -61,7 +105,7 @@ async function classifyIntent(message: string): Promise<IntentClassification> {
 
   // Use Claude for ambiguous cases
   try {
-    const response = await claude.messages.create({
+    const response = await getClaude().messages.create({
       model: 'claude-haiku-4-5-20251001', // Fast model for classification
       max_tokens: 20,
       system: INTENT_CLASSIFICATION_PROMPT,
@@ -84,24 +128,63 @@ async function classifyIntent(message: string): Promise<IntentClassification> {
   return 'GENERAL';
 }
 
-function extractTripRequest(message: string, travelerId: string): TripRequest | null {
-  // Basic extraction — in production use Claude to parse structured trip data
-  const destinationMatch = message.match(/(?:to|for|in|visit)\s+([A-Z][a-zA-Z\s,]+?)(?:\s+(?:from|on|for|in|,)|$)/i);
-  if (!destinationMatch) return null;
+async function extractStructuredTripData(history: ConversationTurn[]): Promise<Partial<TripRequest>> {
+  const messages = history.slice(-5).map(h => ({
+    role: h.role,
+    content: h.content
+  }));
+  try {
+    const response = await getClaude().messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 500,
+      system: EXTRACTION_SYSTEM_PROMPT,
+      messages: messages as any,
+    });
+    const raw = response.content[0].type === 'text' ? response.content[0].text : '';
+    const jsonMatch = raw.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      const data = JSON.parse(jsonMatch[0]);
+      return {
+        destination: data.destination,
+        dates: (data.start_date && data.end_date) ? { start: data.start_date, end: data.end_date } : undefined,
+        budget: data.budget_amount ? { amount: data.budget_amount, currency: data.budget_currency || 'INR' } : undefined,
+        party_size: data.party_size,
+        purpose: data.purpose,
+        preferences: {
+          accommodation_style: data.accommodation_style,
+          activity_level: data.activity_level,
+          dietary: data.dietary_preferences,
+          must_include: data.must_include,
+          avoid: data.avoid,
+        }
+      };
+    }
+  } catch (err) {
+    console.error('[RM] Extraction error:', err);
+  }
+  return {};
+}
 
-  return {
-    id: randomUUID(),
-    traveler_id: travelerId,
-    destination: destinationMatch[1].trim(),
-    dates: { start: '2026-06-15', end: '2026-06-22' }, // Default; parsed from message in production
-    budget: { amount: 150000, currency: 'INR' },
-    party_size: 2,
-    purpose: /honeymoon|romantic/.test(message.toLowerCase()) ? 'honeymoon' : 'leisure' as TripRequest['purpose'],
-    preferences: {
-      activity_level: 'moderate',
-      dietary: 'vegetarian',
-    },
-  };
+function mergeTripRequest(existing: Partial<TripRequest> = {}, newlyExtracted: Partial<TripRequest>): Partial<TripRequest> {
+    return {
+        ...existing,
+        ...newlyExtracted,
+        dates: newlyExtracted.dates || existing.dates,
+        budget: newlyExtracted.budget || existing.budget,
+        preferences: {
+            ...existing.preferences,
+            ...newlyExtracted.preferences
+        }
+    };
+}
+
+function getMissingFields(req: Partial<TripRequest>): string[] {
+    const missing: string[] = [];
+    if (!req.destination) missing.push('destination');
+    if (!req.dates?.start || !req.dates?.end) missing.push('dates');
+    if (!req.budget?.amount) missing.push('budget');
+    if (!req.party_size) missing.push('party size');
+    return missing;
 }
 
 // ─────────────────────────────────────────────
@@ -154,7 +237,7 @@ export async function handleTravelerMessage(
   // Get or create session
   let session = sessions.get(travelerId);
   if (!session) {
-    session = { travelerId, history: [] };
+    session = { travelerId, history: [], state: 'IDLE' };
     sessions.set(travelerId, session);
   }
 
@@ -162,9 +245,9 @@ export async function handleTravelerMessage(
   const intent = await classifyIntent(message);
   session.lastIntent = intent;
 
-  console.log(`[RM] Intent: ${intent} | Message: "${message.slice(0, 60)}..."`);
+  console.log(`[RM] Intent: ${intent} | State: ${session.state} | Message: "${message.slice(0, 60)}..."`);
 
-  let response: string;
+  let response: string = "";
   let routedTo: AgentId = 'relationship-manager';
 
   // ── EMERGENCY: bypass all routing, highest priority ──
@@ -173,42 +256,107 @@ export async function handleTravelerMessage(
     routedTo = 'emergency';
 
   // ── PLANNING: route to Synthesizer ─────────────────
-  } else if (intent === 'PLANNING') {
+  } else if (intent === 'PLANNING' || session.state === 'GATHERING_REQUIREMENTS' || session.state === 'PLAN_PRESENTED' || session.state === 'CONFIRMING_PAYMENT') {
     routedTo = 'synthesizer';
-
-    const tripReq = extractTripRequest(message, travelerId);
-    if (tripReq) {
-      // Acknowledge immediately, then orchestrate
-      const ackResponse = await claude.messages.create({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 200,
-        system: RM_SYSTEM_PROMPT,
-        messages: [{
-          role: 'user',
-          content: `The traveler wants to plan: "${message}". Write a warm 1-2 sentence acknowledgment that you're starting to plan their trip to ${tripReq.destination}. Don't mention internal agents.`,
-        }],
-      });
-      const ack = ackResponse.content[0].type === 'text' ? ackResponse.content[0].text : '';
-
-      // Run orchestration (non-blocking in production; blocking here for simplicity)
-      try {
-        const result = await orchestrateTrip(tripReq);
-        session.activeTripId = tripReq.id;
-
-        if (result.escalation_needed) {
-          response = `${ack}\n\n⚠️ I've found some concerns with your trip that need your attention: ${result.escalation_reason}. Could you confirm how you'd like to proceed?`;
-        } else {
-          response = `${ack}\n\nI've put together a complete itinerary for your ${tripReq.destination} trip! It covers ${result.itinerary.length} days with transport, accommodation, and activities — all within your ₹${tripReq.budget.amount.toLocaleString('en-IN')} budget. Would you like me to walk you through it day by day?`;
+    
+    // Handle state transitions for planning/booking
+    if (session.state === 'PLAN_PRESENTED' && (message.toLowerCase().includes('book') || message.toLowerCase().includes('confirm') || message.toLowerCase().includes('yes') || message.toLowerCase().includes('proceed'))) {
+        session.state = 'CONFIRMING_PAYMENT';
+        response = `Excellent. To proceed with booking your trip to ${session.pendingTripRequest?.destination}, I need your explicit voice confirmation. Do you authorize the payment of ₹${session.pendingTripRequest?.budget?.amount?.toLocaleString('en-IN')} for this itinerary via your saved payment method?`;
+        session.history.push({ role: 'user', content: message });
+        session.history.push({ role: 'assistant', content: response });
+    } else if (session.state === 'CONFIRMING_PAYMENT' && (message.toLowerCase().includes('yes') || message.toLowerCase().includes('authorize') || message.toLowerCase().includes('confirm') || message.toLowerCase().includes('do it'))) {
+        session.state = 'BOOKING_COMPLETE';
+        session.history.push({ role: 'user', content: message });
+        
+        // Trigger notifications (simulated MCP calls)
+        try {
+            await callMcpTool('mcp-notifications', 'send_whatsapp', {
+                phone: '+91-9876543210',
+                template_id: 'trip_confirmation',
+                params: [session.pendingTripRequest?.destination || 'your destination']
+            });
+            await callMcpTool('mcp-notifications', 'send_email', {
+                to: 'traveler@example.com',
+                subject: `Trip Confirmed: ${session.pendingTripRequest?.destination}`,
+                html_body: `<h1>Your booking is complete!</h1><p>Trip ID: ${session.activeTripId}</p><p>Destination: ${session.pendingTripRequest?.destination}</p>`
+            });
+        } catch (e) {
+            console.error('[RM] Notification error:', e);
         }
-      } catch (err) {
-        const error = err instanceof Error ? err.message : String(err);
-        console.error('[RM] Orchestration error:', error);
-        response = `${ack}\n\nI'm working on your itinerary. There was a small hiccup — let me retry. (${error.slice(0, 80)})`;
-      }
+
+        response = "Thank you! Your booking is complete, and I've sent the confirmation to your WhatsApp and email. I'm so excited for your trip to " + session.pendingTripRequest?.destination + "!";
+        session.history.push({ role: 'assistant', content: response });
+    } else if (session.state === 'PLAN_PRESENTED' && (message.toLowerCase().includes('change') || message.toLowerCase().includes('instead') || message.toLowerCase().includes('modify') || message.toLowerCase().includes('different'))) {
+        session.state = 'GATHERING_REQUIREMENTS';
+        response = "Of course. I can certainly adjust that for you. What would you like to change about the itinerary?";
+        session.history.push({ role: 'user', content: message });
+        session.history.push({ role: 'assistant', content: response });
     } else {
-      // Ask for more details
-      const rm = registry.get('relationship-manager');
-      response = await rm.handleMessage(message, { intent, context: 'needs_trip_details' });
+        // Default requirement gathering/planning flow
+        session.state = 'GATHERING_REQUIREMENTS';
+        session.history.push({ role: 'user', content: message });
+
+        // Extract what we have so far
+        const newlyExtracted = await extractStructuredTripData(session.history);
+        session.pendingTripRequest = mergeTripRequest(session.pendingTripRequest, newlyExtracted);
+
+        const missing = getMissingFields(session.pendingTripRequest);
+
+        if (missing.length > 0) {
+            // Ask for missing details
+            const prompt = `The traveler is planning a trip. We have: ${JSON.stringify(session.pendingTripRequest)}. 
+            We are missing: ${missing.join(', ')}. 
+            Last message: "${message}".
+            Ask for the missing information in a warm, conversational, luxury concierge way. Keep it brief as it's for voice.`;
+
+            const askResponse = await getClaude().messages.create({
+                model: 'claude-haiku-4-5-20251001',
+                max_tokens: 200,
+                system: RM_SYSTEM_PROMPT,
+                messages: [{ role: 'user', content: prompt }],
+            });
+            response = askResponse.content[0].type === 'text' ? askResponse.content[0].text : '';
+            session.history.push({ role: 'assistant', content: response });
+        } else {
+            // All details present, proceed to orchestration
+            session.state = 'PLANNING_IN_PROGRESS';
+            const tripReq = {
+                ...session.pendingTripRequest,
+                id: randomUUID(),
+                traveler_id: travelerId,
+            } as TripRequest;
+
+            // Acknowledge and start planning
+            const ackResponse = await getClaude().messages.create({
+                model: 'claude-haiku-4-5-20251001',
+                max_tokens: 200,
+                system: RM_SYSTEM_PROMPT,
+                messages: [{
+                    role: 'user',
+                    content: `We have all details for the trip to ${tripReq.destination}. Write a warm 1-2 sentence acknowledgment.`,
+                }],
+            });
+            const ack = ackResponse.content[0].type === 'text' ? ackResponse.content[0].text : '';
+
+            try {
+                const result = await orchestrateTrip(tripReq);
+                session.activeTripId = tripReq.id;
+                session.state = 'PLAN_PRESENTED';
+
+                if (result.escalation_needed) {
+                    response = `${ack}\n\n⚠️ I've found some concerns: ${result.escalation_reason}. How should we proceed?`;
+                } else {
+                    response = `${ack}\n\nI've designed a perfect ${tripReq.destination} itinerary for you! It's within your ₹${tripReq.budget.amount.toLocaleString('en-IN')} budget. Shall I walk you through the highlights?`;
+                }
+                session.history.push({ role: 'assistant', content: response });
+            } catch (err) {
+                const error = err instanceof Error ? err.message : String(err);
+                console.error('[RM] Orchestration error:', error);
+                response = `${ack}\n\nI'm having a bit of trouble finalizing the plan right now. Let me try again in a moment.`;
+                session.state = 'GATHERING_REQUIREMENTS'; // Fallback
+            }
+        }
     }
 
   // ── LIVE_HELP: route to Concierge ──────────────────
@@ -233,12 +381,12 @@ export async function handleTravelerMessage(
     routedTo = 'relationship-manager';
     session.history.push({ role: 'user', content: message });
 
-    const historyMessages = session.history.map(h => ({
+    const historyMessages = session.history.slice(-10).map(h => ({
       role: h.role as 'user' | 'assistant',
       content: h.content,
     }));
 
-    const resp = await claude.messages.create({
+    const resp = await getClaude().messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 1024,
       system: RM_SYSTEM_PROMPT,

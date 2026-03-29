@@ -1,9 +1,29 @@
 'use client';
 
-import { useState, FormEvent } from 'react';
+import { useState, FormEvent, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { MapPin, Calendar, Wallet, Users, Sparkles, ChevronDown, Loader2, Lightbulb, CheckCircle2, AlertCircle, Info } from 'lucide-react';
+import { 
+  MapPin, 
+  Calendar, 
+  Wallet, 
+  Users, 
+  Sparkles, 
+  ChevronDown, 
+  Loader2, 
+  Lightbulb, 
+  CheckCircle2, 
+  AlertCircle, 
+  Info,
+  ChevronRight,
+  ChevronLeft,
+  Heart,
+  Plane,
+  Home,
+  Utensils,
+  Compass
+} from 'lucide-react';
 import { cn } from '../lib/utils';
+import { DestinationSelector } from '../components/ui/DestinationSelector';
 
 interface Recommendation {
   title: string;
@@ -27,12 +47,12 @@ const PRIORITY_STYLES: Record<string, string> = {
 };
 
 const PURPOSES = [
-  { value: 'honeymoon', label: 'Honeymoon', icon: '💑' },
-  { value: 'family', label: 'Family', icon: '👨‍👩‍👧' },
-  { value: 'adventure', label: 'Adventure', icon: '🧗' },
-  { value: 'business', label: 'Business', icon: '💼' },
-  { value: 'solo', label: 'Solo', icon: '🎒' },
-  { value: 'group', label: 'Group', icon: '👥' },
+  { value: 'honeymoon', label: 'Honeymoon', icon: <Heart className="w-4 h-4" /> },
+  { value: 'family', label: 'Family', icon: <Users className="w-4 h-4" /> },
+  { value: 'adventure', label: 'Adventure', icon: <Compass className="w-4 h-4" /> },
+  { value: 'business', label: 'Business', icon: <Plane className="w-4 h-4" /> },
+  { value: 'solo', label: 'Solo', icon: <Users className="w-4 h-4" /> },
+  { value: 'group', label: 'Group', icon: <Users className="w-4 h-4" /> },
 ];
 
 const ACTIVITY_LEVELS = [
@@ -41,62 +61,9 @@ const ACTIVITY_LEVELS = [
   { value: 'adventurous', label: 'Adventurous', desc: 'Action-packed, high energy' },
 ];
 
-function Label({ children, required }: { children: React.ReactNode; required?: boolean }) {
-  return (
-    <label className="block text-sm font-medium text-foreground mb-1.5">
-      {children}
-      {required && <span className="text-destructive ml-1">*</span>}
-    </label>
-  );
-}
-
-function Input({ className, ...props }: React.InputHTMLAttributes<HTMLInputElement>) {
-  return (
-    <input
-      className={cn(
-        'w-full bg-background border border-input rounded-lg px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground',
-        'focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent',
-        'transition-colors disabled:opacity-50',
-        className
-      )}
-      {...props}
-    />
-  );
-}
-
-function Select({ className, ...props }: React.SelectHTMLAttributes<HTMLSelectElement>) {
-  return (
-    <div className="relative">
-      <select
-        className={cn(
-          'w-full appearance-none bg-background border border-input rounded-lg px-3.5 py-2.5 pr-9 text-sm text-foreground',
-          'focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent',
-          'transition-colors disabled:opacity-50',
-          className
-        )}
-        {...props}
-      />
-      <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-    </div>
-  );
-}
-
-function Textarea({ className, ...props }: React.TextareaHTMLAttributes<HTMLTextAreaElement>) {
-  return (
-    <textarea
-      className={cn(
-        'w-full bg-background border border-input rounded-lg px-3.5 py-2.5 text-sm text-foreground placeholder:text-muted-foreground resize-none',
-        'focus:outline-none focus:ring-2 focus:ring-ring focus:border-transparent',
-        'transition-colors disabled:opacity-50',
-        className
-      )}
-      {...props}
-    />
-  );
-}
-
 export default function TripRequestPage() {
   const router = useRouter();
+  const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
@@ -142,7 +109,7 @@ export default function TripRequestPage() {
       const data = await res.json();
       setRecommendations(data.recommendations ?? []);
     } catch {
-      // silently fail — recommendations are non-critical
+      // silently fail
     } finally {
       setFetchingRecs(false);
     }
@@ -180,281 +147,386 @@ export default function TripRequestPage() {
     }
   }
 
+  const nextStep = () => setStep(s => Math.min(s + 1, 3));
+  const prevStep = () => setStep(s => Math.max(s - 1, 1));
+
   return (
-    <div className="max-w-2xl mx-auto">
-      {/* Hero */}
-      <div className="text-center mb-10">
-        <div className="inline-flex items-center gap-2 bg-primary/10 text-primary text-xs font-semibold px-3 py-1.5 rounded-full mb-4 border border-primary/20">
-          <Sparkles className="h-3.5 w-3.5" />
-          Powered by 13 AI agents
+    <div className="relative min-h-[calc(100vh-8rem)] flex flex-col items-center justify-center py-12 px-4 overflow-hidden">
+      {/* Background blobs */}
+      <div className="absolute top-0 -left-4 w-72 h-72 bg-primary/10 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob"></div>
+      <div className="absolute top-0 -right-4 w-72 h-72 bg-purple-300/10 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob animation-delay-2000"></div>
+      <div className="absolute -bottom-8 left-20 w-72 h-72 bg-pink-300/10 rounded-full mix-blend-multiply filter blur-xl opacity-70 animate-blob animation-delay-4000"></div>
+
+      <div className="max-w-3xl w-full z-10">
+        {/* Header */}
+        <div className="text-center mb-12 space-y-4">
+          <div className="inline-flex items-center gap-2 bg-white/50 dark:bg-slate-900/50 backdrop-blur-sm border border-primary/20 text-primary text-xs font-bold px-4 py-1.5 rounded-full shadow-sm">
+            <Sparkles className="h-3.5 w-3.5 animate-pulse" />
+            THE FUTURE OF TRAVEL IS AGENTIC
+          </div>
+          <h1 className="text-5xl md:text-6xl font-extrabold tracking-tight text-slate-900 dark:text-white">
+            Where to <span className="text-transparent bg-clip-text bg-gradient-to-r from-primary to-purple-600">next?</span>
+          </h1>
+          <p className="text-slate-500 dark:text-slate-400 text-lg max-w-lg mx-auto leading-relaxed">
+            Our swarm of 13 AI agents will coordinate your perfect itinerary in real-time.
+          </p>
         </div>
-        <h1 className="text-4xl font-bold tracking-tight text-foreground mb-3">
-          Plan your perfect trip
-        </h1>
-        <p className="text-muted-foreground text-lg max-w-md mx-auto">
-          Tell us where you want to go and our AI will craft a personalised itinerary in seconds.
-        </p>
-      </div>
 
-      <div className="bg-card rounded-2xl border border-border shadow-sm">
-        {error && (
-          <div className="mx-6 mt-6 p-3.5 bg-destructive/10 border border-destructive/20 text-destructive rounded-lg text-sm flex items-start gap-2">
-            <span className="text-base leading-none mt-0.5">⚠</span>
-            {error}
-          </div>
-        )}
-
-        <form onSubmit={handleSubmit} className="p-6 space-y-6">
-          {/* Destination */}
-          <div>
-            <Label required>Destination</Label>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  name="destination"
-                  required
-                  value={form.destination}
-                  onChange={handleChange}
-                  placeholder="e.g. Pahalgam, Kashmir"
-                  className="pl-9"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={fetchRecommendations}
-                disabled={!form.destination || fetchingRecs}
-                className="flex items-center gap-1.5 text-sm font-medium bg-secondary text-secondary-foreground border border-border px-3.5 py-2.5 rounded-lg hover:bg-muted transition-colors disabled:opacity-50 shrink-0 whitespace-nowrap"
+        {/* Progress Bar */}
+        <div className="mb-10 max-w-xs mx-auto">
+          <div className="flex justify-between mb-2">
+            {[1, 2, 3].map((i) => (
+              <div 
+                key={i} 
+                className={cn(
+                  "w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold transition-all duration-300",
+                  step >= i ? "bg-primary text-white shadow-lg shadow-primary/30" : "bg-slate-200 dark:bg-slate-800 text-slate-400"
+                )}
               >
-                {fetchingRecs ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Lightbulb className="h-3.5 w-3.5" />}
-                AI Tips
-              </button>
-            </div>
-          </div>
-
-          {/* AI Recommendations panel — Issue #1 */}
-          {recommendations.length > 0 && (
-            <div className="bg-secondary/50 border border-border rounded-xl p-4 space-y-3 animate-fade-in">
-              <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-                <Sparkles className="h-4 w-4 text-primary" />
-                AI Planning Tips for {form.destination}
+                {step > i ? <CheckCircle2 className="w-5 h-5" /> : i}
               </div>
-              <div className="space-y-2.5">
-                {recommendations.map((rec, i) => (
-                  <div key={i} className="flex items-start gap-3 p-3 bg-card rounded-lg border border-border">
-                    <span className="text-base shrink-0">{CATEGORY_ICON[rec.category] ?? '💡'}</span>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <span className="text-sm font-semibold text-foreground">{rec.title}</span>
-                        <span className={cn('text-xs font-medium px-2 py-0.5 rounded-full border', PRIORITY_STYLES[rec.priority])}>
-                          {rec.priority}
-                        </span>
-                      </div>
-                      <p className="text-xs text-muted-foreground mt-1 leading-relaxed">{rec.description}</p>
+            ))}
+          </div>
+          <div className="h-1.5 w-full bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+            <div 
+              className="h-full bg-primary transition-all duration-500 ease-out" 
+              style={{ width: `${((step - 1) / 2) * 100}%` }}
+            ></div>
+          </div>
+        </div>
+
+        <form onSubmit={handleSubmit} className="glass rounded-3xl p-8 md:p-10 shadow-2xl transition-all duration-500 min-h-[450px] flex flex-col">
+          {error && (
+            <div className="mb-6 p-4 bg-destructive/10 border border-destructive/20 text-destructive rounded-2xl text-sm flex items-start gap-3 animate-slide-in">
+              <AlertCircle className="w-5 h-5 shrink-0" />
+              {error}
+            </div>
+          )}
+
+          {/* STEP 1: Core Details */}
+          {step === 1 && (
+            <div className="space-y-8 animate-fade-in flex-1">
+              <div className="space-y-6">
+                <div>
+                  <label className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Destination</label>
+                  <DestinationSelector 
+                    value={form.destination} 
+                    onChange={(val) => setForm((prev) => ({ ...prev, destination: val }))} 
+                  />
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Start Date</label>
+                    <div className="relative">
+                      <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
+                      <input
+                        type="date"
+                        name="start_date"
+                        required
+                        value={form.start_date}
+                        onChange={handleChange}
+                        className="w-full bg-white dark:bg-slate-950 border-2 border-slate-100 dark:border-slate-800 rounded-2xl px-12 py-4 focus:outline-none focus:border-primary/50 transition-all"
+                      />
                     </div>
                   </div>
-                ))}
+                  <div>
+                    <label className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest ml-1 mb-2 block">End Date</label>
+                    <div className="relative">
+                      <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400" />
+                      <input
+                        type="date"
+                        name="end_date"
+                        required
+                        value={form.end_date}
+                        onChange={handleChange}
+                        className="w-full bg-white dark:bg-slate-950 border-2 border-slate-100 dark:border-slate-800 rounded-2xl px-12 py-4 focus:outline-none focus:border-primary/50 transition-all"
+                      />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {recommendations.length > 0 && (
+                <div className="bg-primary/5 border border-primary/10 rounded-2xl p-4 space-y-3 animate-fade-in">
+                  <div className="flex items-center gap-2 text-sm font-bold text-primary uppercase tracking-tighter">
+                    <Sparkles className="h-4 w-4" />
+                    AI Intelligence for {form.destination}
+                  </div>
+                  <div className="flex gap-3 overflow-x-auto pb-2 scrollbar-hide">
+                    {recommendations.map((rec, i) => (
+                      <div key={i} className="min-w-[200px] p-3 bg-white dark:bg-slate-900 rounded-xl border border-slate-100 dark:border-slate-800 shadow-sm flex-shrink-0">
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-base">{CATEGORY_ICON[rec.category]}</span>
+                          <span className="text-xs font-bold uppercase text-slate-400 truncate">{rec.title}</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 leading-tight line-clamp-2">{rec.description}</p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* STEP 2: Budget & People */}
+          {step === 2 && (
+            <div className="space-y-8 animate-fade-in flex-1">
+              <div className="space-y-6">
+                <div>
+                  <label className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Budget</label>
+                  <div className="flex gap-3">
+                    <div className="relative flex-1 group">
+                      <Wallet className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400 group-focus-within:text-primary transition-colors" />
+                      <input
+                        type="number"
+                        name="budget_amount"
+                        required
+                        min="0"
+                        value={form.budget_amount}
+                        onChange={handleChange}
+                        placeholder="Total budget amount"
+                        className="w-full bg-white dark:bg-slate-950 border-2 border-slate-100 dark:border-slate-800 rounded-2xl px-12 py-4 text-lg focus:outline-none focus:border-primary/50 transition-all"
+                      />
+                    </div>
+                    <select 
+                      name="budget_currency" 
+                      value={form.budget_currency} 
+                      onChange={handleChange}
+                      className="w-32 bg-white dark:bg-slate-950 border-2 border-slate-100 dark:border-slate-800 rounded-2xl px-4 py-4 focus:outline-none focus:border-primary/50 transition-all font-bold appearance-none text-center cursor-pointer"
+                    >
+                      <option value="INR">INR</option>
+                      <option value="USD">USD</option>
+                      <option value="EUR">EUR</option>
+                      <option value="GBP">GBP</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Travellers</label>
+                    <div className="relative group">
+                      <Users className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400 group-focus-within:text-primary transition-colors" />
+                      <input
+                        type="number"
+                        name="party_size"
+                        required
+                        min="1"
+                        max="50"
+                        value={form.party_size}
+                        onChange={handleChange}
+                        className="w-full bg-white dark:bg-slate-950 border-2 border-slate-100 dark:border-slate-800 rounded-2xl px-12 py-4 focus:outline-none focus:border-primary/50 transition-all"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Trip Purpose</label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {PURPOSES.slice(0, 6).map((p) => (
+                        <button
+                          key={p.value}
+                          type="button"
+                          onClick={() => setForm(f => ({ ...f, purpose: p.value }))}
+                          className={cn(
+                            "p-3 rounded-xl border-2 flex flex-col items-center gap-1 transition-all",
+                            form.purpose === p.value 
+                              ? "border-primary bg-primary/5 text-primary shadow-sm" 
+                              : "border-slate-100 dark:border-slate-800 text-slate-400 hover:border-slate-200"
+                          )}
+                        >
+                          {p.icon}
+                          <span className="text-[10px] font-bold uppercase">{p.label}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           )}
 
-          {/* Dates */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label required>Start Date</Label>
-              <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                <Input
-                  type="date"
-                  name="start_date"
-                  required
-                  value={form.start_date}
-                  onChange={handleChange}
-                  className="pl-9"
-                />
+          {/* STEP 3: Preferences & Style */}
+          {step === 3 && (
+            <div className="space-y-8 animate-fade-in flex-1">
+              <div className="space-y-6">
+                <div>
+                  <label className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest ml-1 mb-3 block text-center">Vibe & Intensity</label>
+                  <div className="grid grid-cols-3 gap-4">
+                    {ACTIVITY_LEVELS.map((level) => (
+                      <button
+                        key={level.value}
+                        type="button"
+                        onClick={() => setForm((p) => ({ ...p, activity_level: level.value as any }))}
+                        className={cn(
+                          'p-4 rounded-2xl border-2 text-center transition-all flex flex-col gap-1',
+                          form.activity_level === level.value
+                            ? 'border-primary bg-primary/5 text-primary ring-4 ring-primary/10'
+                            : 'border-slate-100 dark:border-slate-800 text-slate-400 hover:border-slate-200'
+                        )}
+                      >
+                        <div className="text-sm font-bold uppercase">{level.label}</div>
+                        <div className="text-[10px] leading-tight opacity-70">{level.desc}</div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Accommodation</label>
+                    <div className="relative group">
+                      <Home className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400 group-focus-within:text-primary transition-colors" />
+                      <input
+                        name="accommodation_style"
+                        value={form.accommodation_style}
+                        onChange={handleChange}
+                        placeholder="e.g. Boutique, Eco-lodge"
+                        className="w-full bg-white dark:bg-slate-950 border-2 border-slate-100 dark:border-slate-800 rounded-2xl px-12 py-4 focus:outline-none focus:border-primary/50 transition-all"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Dietary</label>
+                    <div className="relative group">
+                      <Utensils className="absolute left-4 top-1/2 -translate-y-1/2 h-5 w-5 text-slate-400 group-focus-within:text-primary transition-colors" />
+                      <input
+                        name="dietary"
+                        value={form.dietary}
+                        onChange={handleChange}
+                        placeholder="e.g. Vegan, No gluten"
+                        className="w-full bg-white dark:bg-slate-950 border-2 border-slate-100 dark:border-slate-800 rounded-2xl px-12 py-4 focus:outline-none focus:border-primary/50 transition-all"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div>
+                    <label className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Must Include</label>
+                    <textarea
+                      name="must_include"
+                      value={form.must_include}
+                      onChange={handleChange}
+                      rows={2}
+                      placeholder="e.g. Shikara ride, Gulmarg"
+                      className="w-full bg-white dark:bg-slate-950 border-2 border-slate-100 dark:border-slate-800 rounded-2xl px-6 py-4 focus:outline-none focus:border-primary/50 transition-all resize-none text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-sm font-bold text-slate-500 dark:text-slate-400 uppercase tracking-widest ml-1 mb-2 block">Avoid</label>
+                    <textarea
+                      name="avoid"
+                      value={form.avoid}
+                      onChange={handleChange}
+                      rows={2}
+                      placeholder="e.g. Crowded markets"
+                      className="w-full bg-white dark:bg-slate-950 border-2 border-slate-100 dark:border-slate-800 rounded-2xl px-6 py-4 focus:outline-none focus:border-primary/50 transition-all resize-none text-sm"
+                    />
+                  </div>
+                </div>
               </div>
             </div>
-            <div>
-              <Label required>End Date</Label>
-              <div className="relative">
-                <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-                <Input
-                  type="date"
-                  name="end_date"
-                  required
-                  value={form.end_date}
-                  onChange={handleChange}
-                  className="pl-9"
-                />
-              </div>
-            </div>
-          </div>
+          )}
 
-          {/* Budget */}
-          <div>
-            <Label required>Budget</Label>
-            <div className="flex gap-2">
-              <div className="relative flex-1">
-                <Wallet className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  type="number"
-                  name="budget_amount"
-                  required
-                  min="0"
-                  value={form.budget_amount}
-                  onChange={handleChange}
-                  placeholder="150,000"
-                  className="pl-9"
-                />
-              </div>
-              <Select name="budget_currency" value={form.budget_currency} onChange={handleChange} className="w-24">
-                <option value="INR">INR</option>
-                <option value="USD">USD</option>
-                <option value="EUR">EUR</option>
-                <option value="GBP">GBP</option>
-              </Select>
-            </div>
-          </div>
-
-          {/* Party & Purpose */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label required>Party Size</Label>
-              <div className="relative">
-                <Users className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                <Input
-                  type="number"
-                  name="party_size"
-                  required
-                  min="1"
-                  max="50"
-                  value={form.party_size}
-                  onChange={handleChange}
-                  className="pl-9"
-                />
-              </div>
-            </div>
-            <div>
-              <Label>Trip Purpose</Label>
-              <Select name="purpose" value={form.purpose} onChange={handleChange}>
-                {PURPOSES.map((p) => (
-                  <option key={p.value} value={p.value}>
-                    {p.icon} {p.label}
-                  </option>
-                ))}
-              </Select>
-            </div>
-          </div>
-
-          {/* Activity Level */}
-          <div>
-            <Label>Activity Level</Label>
-            <div className="grid grid-cols-3 gap-2 mt-1">
-              {ACTIVITY_LEVELS.map((level) => (
-                <button
-                  key={level.value}
-                  type="button"
-                  onClick={() => setForm((p) => ({ ...p, activity_level: level.value }))}
-                  className={cn(
-                    'p-3 rounded-lg border-2 text-left transition-all',
-                    form.activity_level === level.value
-                      ? 'border-primary bg-primary/5 text-primary'
-                      : 'border-border text-muted-foreground hover:border-muted-foreground hover:text-foreground'
-                  )}
-                >
-                  <div className="text-sm font-semibold">{level.label}</div>
-                  <div className="text-xs mt-0.5 leading-tight opacity-80">{level.desc}</div>
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Accommodation Style */}
-          <div>
-            <Label>Accommodation Style</Label>
-            <Input
-              name="accommodation_style"
-              value={form.accommodation_style}
-              onChange={handleChange}
-              placeholder="e.g. Luxury resort, Boutique hotel, Houseboat"
-            />
-          </div>
-
-          {/* Dietary */}
-          <div>
-            <Label>Dietary Requirements</Label>
-            <Input
-              name="dietary"
-              value={form.dietary}
-              onChange={handleChange}
-              placeholder="e.g. Vegetarian, No nuts, Halal"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <Label>
-                Must Include{' '}
-                <span className="text-muted-foreground font-normal text-xs">(comma-separated)</span>
-              </Label>
-              <Textarea
-                name="must_include"
-                value={form.must_include}
-                onChange={handleChange}
-                rows={2}
-                placeholder="e.g. Shikara ride, Gulmarg"
-              />
-            </div>
-            <div>
-              <Label>
-                Avoid{' '}
-                <span className="text-muted-foreground font-normal text-xs">(comma-separated)</span>
-              </Label>
-              <Textarea
-                name="avoid"
-                value={form.avoid}
-                onChange={handleChange}
-                rows={2}
-                placeholder="e.g. Crowded markets"
-              />
-            </div>
-          </div>
-
-          <button
-            type="submit"
-            disabled={loading}
-            className="w-full bg-primary hover:bg-primary/90 disabled:opacity-60 text-primary-foreground font-semibold py-3 px-6 rounded-lg transition-colors text-sm flex items-center justify-center gap-2 shadow-sm min-h-[48px]"
-          >
-            {loading ? (
-              <>
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Planning your trip…
-              </>
-            ) : (
-              <>
-                <Sparkles className="h-4 w-4" />
-                Plan My Trip
-              </>
+          {/* Navigation Buttons */}
+          <div className="mt-10 flex gap-4">
+            {step > 1 && (
+              <button
+                type="button"
+                onClick={prevStep}
+                className="flex items-center justify-center gap-2 px-6 py-4 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 rounded-2xl font-bold hover:bg-slate-200 dark:hover:bg-slate-700 transition-all"
+              >
+                <ChevronLeft className="w-5 h-5" />
+                BACK
+              </button>
             )}
-          </button>
+            
+            {step < 3 ? (
+              <button
+                type="button"
+                onClick={nextStep}
+                disabled={step === 1 && !form.destination}
+                className="flex-1 flex items-center justify-center gap-2 px-6 py-4 bg-primary text-white rounded-2xl font-bold shadow-xl shadow-primary/20 hover:shadow-primary/40 hover:-translate-y-0.5 transition-all disabled:opacity-50 disabled:shadow-none disabled:translate-y-0"
+              >
+                CONTINUE
+                <ChevronRight className="w-5 h-5" />
+              </button>
+            ) : (
+              <button
+                type="submit"
+                disabled={loading}
+                className="flex-1 flex items-center justify-center gap-2 px-6 py-4 bg-gradient-to-r from-primary to-purple-600 text-white rounded-2xl font-bold shadow-xl shadow-primary/20 hover:shadow-primary/40 hover:-translate-y-0.5 transition-all disabled:opacity-50"
+              >
+                {loading ? (
+                  <>
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                    COORDINATING AGENTS…
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="h-5 w-5" />
+                    FINALIZE ITINERARY
+                  </>
+                )}
+              </button>
+            )}
+          </div>
         </form>
-      </div>
 
-      {/* Trust badges */}
-      <div className="flex items-center justify-center gap-6 mt-6 text-xs text-muted-foreground">
-        <div className="flex items-center gap-1.5">
-          <div className="w-1.5 h-1.5 rounded-full bg-success"></div>
-          13 AI agents
-        </div>
-        <div className="flex items-center gap-1.5">
-          <div className="w-1.5 h-1.5 rounded-full bg-success"></div>
-          Real-time pricing
-        </div>
-        <div className="flex items-center gap-1.5">
-          <div className="w-1.5 h-1.5 rounded-full bg-success"></div>
-          Live rerouting
+        {/* Footer badges */}
+        <div className="flex flex-wrap items-center justify-center gap-x-8 gap-y-4 mt-12">
+          <div className="flex items-center gap-2 group">
+            <div className="w-10 h-10 rounded-full bg-success/10 flex items-center justify-center group-hover:bg-success group-hover:text-white transition-all">
+              <CheckCircle2 className="w-5 h-5 text-success group-hover:text-inherit" />
+            </div>
+            <div className="text-left">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Status</p>
+              <p className="text-xs font-bold text-slate-600 dark:text-slate-300">13 agents active</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 group">
+            <div className="w-10 h-10 rounded-full bg-blue-500/10 flex items-center justify-center group-hover:bg-blue-500 group-hover:text-white transition-all">
+              <RefreshCw className="w-5 h-5 text-blue-500 group-hover:text-inherit" />
+            </div>
+            <div className="text-left">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Engine</p>
+              <p className="text-xs font-bold text-slate-600 dark:text-slate-300">Live re-routing</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 group">
+            <div className="w-10 h-10 rounded-full bg-purple-500/10 flex items-center justify-center group-hover:bg-purple-500 group-hover:text-white transition-all">
+              <Compass className="w-5 h-5 text-purple-500 group-hover:text-inherit" />
+            </div>
+            <div className="text-left">
+              <p className="text-[10px] font-bold text-slate-400 uppercase tracking-tighter">Intelligence</p>
+              <p className="text-xs font-bold text-slate-600 dark:text-slate-300">Real-time pricing</p>
+            </div>
+          </div>
         </div>
       </div>
     </div>
   );
+}
+
+function RefreshCw(props: any) {
+  return (
+    <svg
+      {...props}
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+      <path d="M21 3v5h-5" />
+      <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+      <path d="M3 21v-5h5" />
+    </svg>
+  )
 }

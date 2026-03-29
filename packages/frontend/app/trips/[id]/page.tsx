@@ -26,6 +26,7 @@ import {
   Info,
   BookOpen,
   RefreshCw,
+  Loader2,
 } from 'lucide-react';
 import type { LiveStatus, BookingConfirmation, TripAlert } from '../../../lib/live-status';
 import type {
@@ -36,8 +37,8 @@ import type {
   DiningSegment,
   BudgetDashboard,
 } from '@travel/shared';
-import { MOCK_ITINERARY, MOCK_BUDGET } from './mockData';
 import { cn } from '../../../lib/utils';
+import ErrorBoundary from '../../../components/ErrorBoundary';
 
 function formatTime(iso: string) {
   try {
@@ -467,6 +468,40 @@ function BookingRow({ booking }: { booking: BookingConfirmation }) {
 }
 
 export default function TripItineraryPage({ params }: { params: { id: string } }) {
+  const [trip, setTrip] = useState<any | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    fetch(`/api/trips/${params.id}`)
+      .then(r => {
+        if (!r.ok) throw new Error('Trip not found');
+        return r.json();
+      })
+      .then(data => { setTrip(data); setLoading(false); })
+      .catch(err => { setError(err.message); setLoading(false); });
+  }, [params.id]);
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4">
+        <Loader2 className="h-10 w-10 animate-spin text-primary" />
+        <p className="text-muted-foreground font-medium">Loading your AI-crafted itinerary…</p>
+      </div>
+    );
+  }
+
+  if (error || !trip) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] gap-4 text-center">
+        <XCircle className="h-12 w-12 text-destructive" />
+        <h2 className="text-xl font-bold">Trip Not Found</h2>
+        <p className="text-muted-foreground">{error || 'The requested trip does not exist.'}</p>
+        <Link href="/" className="text-primary hover:underline font-medium">Back to Planner</Link>
+      </div>
+    );
+  }
+
   return (
     <div className="max-w-3xl mx-auto">
       {/* Header */}
@@ -474,11 +509,11 @@ export default function TripItineraryPage({ params }: { params: { id: string } }
         <div>
           <div className="flex items-center gap-2 text-xs text-muted-foreground mb-2">
             <MapPin className="h-3.5 w-3.5" />
-            Kashmir, India
+            {trip.destination}
           </div>
-          <h1 className="text-3xl font-bold tracking-tight text-foreground">Pahalgam</h1>
+          <h1 className="text-3xl font-bold tracking-tight text-foreground">{trip.metadata?.destination || trip.destination}</h1>
           <p className="text-muted-foreground text-sm mt-1">
-            Trip #{params.id.slice(0, 8)} · 7 days · 2 travellers · Honeymoon
+            Trip #{params.id.slice(0, 8)} · {trip.itinerary.length} days · {trip.metadata?.party_size || 2} travellers · {trip.metadata?.purpose || 'travel'}
           </p>
         </div>
         <div className="flex gap-2 shrink-0">
@@ -499,17 +534,23 @@ export default function TripItineraryPage({ params }: { params: { id: string } }
         </div>
       </div>
 
-      <BudgetPanel budget={MOCK_BUDGET} />
+      <ErrorBoundary>
+        <BudgetPanel budget={trip.budget} />
+      </ErrorBoundary>
 
       {/* Issue #2: Booking hub with live flight status + alerts */}
-      <BookingHub tripId={params.id} />
+      <ErrorBoundary>
+        <BookingHub tripId={params.id} />
+      </ErrorBoundary>
 
-      <div className="space-y-3">
-        <h2 className="text-lg font-semibold text-foreground">Day-by-Day Itinerary</h2>
-        {MOCK_ITINERARY.map((day) => (
-          <DayCard key={day.day_number} day={day} />
-        ))}
-      </div>
+      <ErrorBoundary>
+        <div className="space-y-3">
+          <h2 className="text-lg font-semibold text-foreground">Day-by-Day Itinerary</h2>
+          {trip.itinerary.map((day: ItineraryDay) => (
+            <DayCard key={day.day_number} day={day} />
+          ))}
+        </div>
+      </ErrorBoundary>
     </div>
   );
 }

@@ -19,13 +19,20 @@ function getRedisUrl(): string {
 
 function createClient(): Redis {
   const client = new Redis(getRedisUrl(), {
-    retryStrategy: (times: number) => Math.min(times * 100, 3000),
-    maxRetriesPerRequest: 3,
+    retryStrategy: (times: number) => {
+      // Slow down retries if failing
+      return Math.min(times * 500, 10000);
+    },
+    maxRetriesPerRequest: 1,
     lazyConnect: true,
+    connectTimeout: 1000,
   });
 
   client.on('error', (err: Error) => {
-    console.error('[EventBus] Redis error:', err.message);
+    // Only log critical errors, not common connection issues in dev
+    if (!err.message.includes('ECONNREFUSED')) {
+      console.error('[EventBus] Redis error:', err.message);
+    }
   });
 
   return client;

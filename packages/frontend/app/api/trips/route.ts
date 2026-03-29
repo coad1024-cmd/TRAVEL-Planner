@@ -1,14 +1,44 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { orchestrateTrip } from '@travel/orchestrator';
+import { saveTrip } from '@/lib/trip-store';
+import { randomUUID } from 'crypto';
 
 export async function POST(request: NextRequest) {
   try {
-    // Consume the body to avoid any issues (validates JSON)
-    await request.json();
+    const body = await request.json();
+    
+    const tripId = randomUUID();
+    const tripRequest = {
+      id: tripId,
+      traveler_id: randomUUID(),
+      destination: body.destination,
+      dates: body.dates,
+      budget: body.budget,
+      party_size: body.party_size,
+      purpose: body.purpose,
+      preferences: body.preferences || {},
+    };
+
+    console.log('[API] Starting orchestration for:', body.destination);
+    
+    // In a real app, this would be non-blocking with a status check
+    const result = await orchestrateTrip(tripRequest);
+    
+    // Add the trip metadata to the result for display
+    const finalData = {
+        ...result,
+        trip_id: tripId,
+        metadata: tripRequest
+    };
+    
+    await saveTrip(tripId, finalData);
+    
     return NextResponse.json(
-      { id: '00000000-0000-0000-0000-000000000002', status: 'planning' },
+      { id: tripId, status: result.state },
       { status: 201 }
     );
-  } catch {
-    return NextResponse.json({ error: 'Invalid request body' }, { status: 400 });
+  } catch (err: any) {
+    console.error('[API] Orchestration failed:', err);
+    return NextResponse.json({ error: err.message || 'Orchestration failed' }, { status: 500 });
   }
 }

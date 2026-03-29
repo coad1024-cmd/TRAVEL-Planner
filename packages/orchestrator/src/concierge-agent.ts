@@ -31,8 +31,9 @@ export async function handleConciergeQuery(
   message: string,
   context: ConciergeContext,
 ): Promise<string> {
-  const { gps } = context;
-  const locationStr = gps ? `${gps.lat},${gps.lng}` : 'Pahalgam, Jammu & Kashmir';
+  const { gps, location } = context;
+  const fallbackLocation = location || 'the current destination';
+  const locationStr = gps ? `${gps.lat},${gps.lng}` : fallbackLocation;
 
   // Run parallel MCP calls based on query type
   const msg = message.toLowerCase();
@@ -93,7 +94,7 @@ export async function handleConciergeQuery(
   // Build context for Claude
   const locationContext = gps
     ? `Traveler GPS: ${gps.lat}, ${gps.lng} — ${mapsLink('location', gps.lat, gps.lng)}`
-    : 'Location: Pahalgam town center';
+    : `Location: ${fallbackLocation}`;
 
   const dataContext = [data1, data2]
     .filter(Boolean)
@@ -108,7 +109,7 @@ export async function handleConciergeQuery(
       role: 'user',
       content: `Query: "${message}"
 ${locationContext}
-Data: ${dataContext || 'No live data available — use Pahalgam local knowledge.'}`,
+Data: ${dataContext || `No live data available — use ${fallbackLocation} local knowledge.`}`,
     }],
   });
 

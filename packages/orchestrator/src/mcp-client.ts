@@ -47,11 +47,6 @@ export async function connectToMcpServer(serverName: string): Promise<Client> {
     throw new Error(`Unknown MCP server: ${serverName}`);
   }
 
-  const proc = spawn('node', [serverPath], {
-    env: { ...process.env },
-    stdio: ['pipe', 'pipe', 'inherit'],
-  });
-
   const transport = new StdioClientTransport({
     command: 'node',
     args: [serverPath],
@@ -65,7 +60,7 @@ export async function connectToMcpServer(serverName: string): Promise<Client> {
 
   await client.connect(transport);
 
-  activeConnections.set(serverName, { client, process: proc, serverName });
+  activeConnections.set(serverName, { client, process: (transport as any).process, serverName });
   console.log(`[MCP] Connected to ${serverName}`);
 
   // #6: Mark server as healthy on successful connection
@@ -94,13 +89,24 @@ export async function checkServerHealth(serverName: string): Promise<boolean> {
   return true;
 }
 
+export interface CallToolResult {
+  content: Array<{ type: string; text?: string; [key: string]: unknown }>;
+  isError?: boolean;
+}
+
+export async function listMcpTools(serverName: string) {
+  const client = await connectToMcpServer(serverName);
+  const result = await client.listTools();
+  return result.tools;
+}
+
 export async function callMcpTool(
   serverName: string,
   toolName: string,
   args: Record<string, unknown>,
 ): Promise<unknown> {
   const client = await connectToMcpServer(serverName);
-  const result = await client.callTool({ name: toolName, arguments: args });
+  const result = await client.callTool({ name: toolName, arguments: args }) as CallToolResult;
 
   if (result.isError) {
     throw new Error(`MCP tool error [${serverName}/${toolName}]: ${JSON.stringify(result.content)}`);

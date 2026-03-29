@@ -480,6 +480,18 @@ export interface PreDepartureChecklist {
   items: PreDepartureChecklistItem[];
 }
 
+export interface SynthesizerResult {
+  itinerary: ItineraryDay[];
+  budget: BudgetDashboard;
+  messages: AgentMessage[];
+  state: SynthesizerState;
+  escalation_needed: boolean;
+  escalation_reason?: string;
+  pre_departure_checklist: PreDepartureChecklist;
+  itinerary_version: ItineraryVersionRecord;
+  calendar_conflicts: DestinationCalendarEvent[];
+}
+
 // ============================================================
 // #4: Offline decision policy for re-routing
 // ============================================================
