@@ -20,10 +20,23 @@ cp .env.example .env
 # Required for full functionality: ANTHROPIC_API_KEY
 ```
 
-### 2. Install dependencies
-```bash
+### 2. Set up PostgreSQL Database
+The system requires a PostgreSQL database for state storage (trips, segments, expenses, etc.).
+Ensure you have PostgreSQL running locally or remotely, then:
+\`\`\`bash
+# 1. Update DATABASE_URL in your .env file
+# 2. Run initial Prisma migration:
+pnpm db:migrate
+# 3. Generate the Prisma client:
+pnpm db:generate
+# 4. Seed demo data:
+pnpm db:seed
+\`\`\`
+
+### 3. Install dependencies
+\`\`\`bash
 pnpm install
-```
+\`\`\`
 
 ### 3. Build all packages
 ```bash
