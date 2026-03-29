@@ -35,7 +35,7 @@ interface ManagerResponse {
 
 // ─── Voice Hook ──────────────────────────────────────────
 
-function useVoice() {
+function useVoice(language: string = 'en') {
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState('');
@@ -51,7 +51,7 @@ function useVoice() {
         const recognition = new SpeechRecognition();
         recognition.continuous = false;
         recognition.interimResults = true;
-        recognition.lang = 'en-US';
+        recognition.lang = language === 'hi' ? 'hi-IN' : 'en-US';
 
         recognition.onresult = (event: any) => {
           let finalTranscript = '';
@@ -78,7 +78,7 @@ function useVoice() {
         recognitionRef.current = recognition;
       }
     }
-  }, []);
+  }, [language]);
 
   const startListening = useCallback(() => {
     if (recognitionRef.current && !isListening && !isSpeaking) {
@@ -101,13 +101,24 @@ function useVoice() {
     if (!voiceEnabled || !synthRef.current) return;
     synthRef.current.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
+    
+    // Select voice based on language
+    const voices = synthRef.current.getVoices();
+    if (language === 'hi' || language === 'hinglish') {
+      const hiVoice = voices.find(v => v.lang.startsWith('hi')) || voices.find(v => v.lang.startsWith('en-IN'));
+      if (hiVoice) utterance.voice = hiVoice;
+    } else {
+      const enVoice = voices.find(v => v.lang.startsWith('en-US')) || voices.find(v => v.lang.startsWith('en'));
+      if (enVoice) utterance.voice = enVoice;
+    }
+
     utterance.rate = 0.95;
     utterance.pitch = 1;
     utterance.onstart = () => setIsSpeaking(true);
     utterance.onend = () => setIsSpeaking(false);
     utterance.onerror = () => setIsSpeaking(false);
     synthRef.current.speak(utterance);
-  }, [voiceEnabled]);
+  }, [voiceEnabled, language]);
 
   const stopSpeaking = useCallback(() => {
     if (synthRef.current) {
@@ -210,9 +221,10 @@ export default function InteractPage() {
   const [textInput, setTextInput] = useState('');
   const [expandedDays, setExpandedDays] = useState<Set<number>>(new Set([1]));
   const [selectedPayment, setSelectedPayment] = useState<string | null>(null);
+  const [language, setLanguage] = useState<'en' | 'hi' | 'hinglish'>('en');
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  const voice = useVoice();
+  const voice = useVoice(language);
 
   // ─── Real-time Sync (SSE / Polling Fallback) ───────────
   useEffect(() => {
@@ -286,6 +298,7 @@ export default function InteractPage() {
         body: JSON.stringify({
           message: message.trim(),
           travelerId,
+          language,
           ...(paymentMethod && { payment_method: paymentMethod }),
         }),
       });
@@ -301,7 +314,7 @@ export default function InteractPage() {
     } finally {
       setLoading(false);
     }
-  }, [travelerId, voice]);
+  }, [travelerId, voice, language]);
 
   // Handle start interaction
   const handleStart = useCallback(async () => {
@@ -444,9 +457,27 @@ export default function InteractPage() {
 
           {/* Voice / mute controls */}
           <div className="flex items-center gap-3 mt-3">
+            <div className="flex bg-muted rounded-lg p-1">
+              {[
+                { id: 'en', label: 'EN' },
+                { id: 'hi', label: 'HI' },
+                { id: 'hinglish', label: 'HIN' }
+              ].map(lang => (
+                <button
+                  key={lang.id}
+                  onClick={() => setLanguage(lang.id as any)}
+                  className={cn(
+                    "px-3 py-1 text-[10px] font-bold rounded-md transition-all",
+                    language === lang.id ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {lang.label}
+                </button>
+              ))}
+            </div>
             <button
               onClick={() => voice.setVoiceEnabled(!voice.voiceEnabled)}
-              className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground"
+              className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground ml-2"
               title={voice.voiceEnabled ? "Mute voice" : "Enable voice"}
             >
               {voice.voiceEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
