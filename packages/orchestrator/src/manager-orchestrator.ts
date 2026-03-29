@@ -12,7 +12,7 @@ import { AgentRegistry } from './registry.js';
 import { orchestrateTrip } from './synthesizer.js';
 import { callMcpTool } from './mcp-client.js';
 import { randomUUID } from 'crypto';
-import Redis from 'ioredis';
+import { Redis } from 'ioredis';
 
 // ─── Types ───────────────────────────────────────────────
 

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { handleManagerMessage } from '@travel/orchestrator/manager-orchestrator';
+import { handleManagerMessage } from '@travel/orchestrator';
 
 export async function POST(request: NextRequest) {
   try {
