@@ -16,7 +16,7 @@ async function test() {
         currency: 'EUR'
       },
       party_size: 2,
-      purpose: 'vacation',
+      purpose: 'group',
       preferences: {
         activity_level: 'moderate',
         must_include: ['Eiffel Tower', 'Louvre'],

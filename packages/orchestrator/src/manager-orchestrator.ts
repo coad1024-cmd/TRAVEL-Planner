@@ -35,6 +35,7 @@ export interface VisualState {
   payment_status: 'idle' | 'pending' | 'processing' | 'success' | 'failed';
   payment_method: string | null;
   booking_confirmation: BookingConfirmation | null;
+  orchestration_status?: string;
 }
 
 export interface ConversationTurn {
@@ -123,6 +124,7 @@ interface ManagerSession {
   payment_method: string | null;
   booking_confirmation: BookingConfirmation | null;
   registry: AgentRegistry | null;
+  orchestration_status?: string;
 }
 
 const sessions = new Map<string, ManagerSession>();
@@ -148,7 +150,7 @@ function getOrCreateSession(travelerId: string): ManagerSession {
   return session;
 }
 
-function buildVisualState(session: ManagerSession): VisualState {
+export function buildVisualState(session: ManagerSession): VisualState {
   return {
     step: session.step,
     transcript: session.transcript,
@@ -159,6 +161,7 @@ function buildVisualState(session: ManagerSession): VisualState {
     payment_status: session.payment_status,
     payment_method: session.payment_method,
     booking_confirmation: session.booking_confirmation,
+    orchestration_status: session.orchestration_status,
   };
 }
 
@@ -357,6 +360,26 @@ export async function handleManagerMessage(
 
       // Start orchestration in background
       (async () => {
+        let isDone = false;
+        
+        // Progress sequence
+        const updates = [
+          'Consulting flight agent...',
+          'Checking hotel availability...',
+          'Coordinating transport...',
+          'Reviewing budget constraints...',
+          'Generating optimal itinerary...',
+        ];
+        
+        const updateInterval = setInterval(() => {
+          if (isDone) {
+            clearInterval(updateInterval);
+            return;
+          }
+          const next = updates.shift();
+          if (next) Object.assign(session, { orchestration_status: next });
+        }, 1500);
+
         try {
           const tripReq = {
             ...session.structured_inputs,
@@ -364,11 +387,17 @@ export async function handleManagerMessage(
             traveler_id: travelerId,
           } as TripRequest;
 
+          session.orchestration_status = 'Initiating sub-agents...';
           const result = await orchestrateTrip(tripReq);
+          
+          isDone = true;
+          session.orchestration_status = 'Plan ready!';
           session.itinerary = result.itinerary;
           session.budget_dashboard = result.budget;
           session.step = 'PLAN_GENERATION';
         } catch (err) {
+          isDone = true;
+          session.orchestration_status = 'Plan ready!';
           console.error('[Manager] Orchestration failed:', err);
           // Generate mock itinerary for demo
           session.itinerary = generateMockItinerary(session.structured_inputs);

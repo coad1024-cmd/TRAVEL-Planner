@@ -23,6 +23,7 @@ interface VisualState {
   payment_status: string;
   payment_method: string | null;
   booking_confirmation: any | null;
+  orchestration_status?: string;
 }
 
 interface ManagerResponse {
@@ -213,6 +214,62 @@ export default function InteractPage() {
 
   const voice = useVoice();
 
+  // ─── Real-time Sync (SSE / Polling Fallback) ───────────
+  useEffect(() => {
+    if (!started || !travelerId) return;
+
+    let eventSource: EventSource | null = null;
+    let pollInterval: NodeJS.Timeout | null = null;
+
+    if (typeof window !== 'undefined' && typeof window.EventSource !== 'undefined') {
+      eventSource = new EventSource(`/api/interact/stream?travelerId=${travelerId}`);
+      
+      eventSource.onmessage = (e) => {
+        try {
+          const state: VisualState = JSON.parse(e.data);
+          setVisualState(prev => {
+            // When moving from ORCHESTRATION to PLAN_GENERATION, trigger the backend to speak the plan
+            if (prev && prev.step === 'ORCHESTRATION' && state.step === 'PLAN_GENERATION') {
+              setTimeout(() => {
+                sendMessage(''); // Send an empty message to trigger the voice response
+              }, 500);
+            }
+            return state;
+          });
+        } catch (err) {}
+      };
+
+      eventSource.onerror = () => {
+        // Will auto-reconnect or fail gracefully
+      };
+    } else {
+      // Fallback
+      pollInterval = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/interact/stream?travelerId=${travelerId}&poll=true`);
+          const text = await res.text();
+          const match = text.match(/data: (.*)\n\n/);
+          if (match && match[1]) {
+            const state: VisualState = JSON.parse(match[1]);
+            setVisualState(prev => {
+              if (prev && prev.step === 'ORCHESTRATION' && state.step === 'PLAN_GENERATION') {
+                setTimeout(() => {
+                  sendMessage('');
+                }, 500);
+              }
+              return state;
+            });
+          }
+        } catch(err) {}
+      }, 3000);
+    }
+
+    return () => {
+      if (eventSource) eventSource.close();
+      if (pollInterval) clearInterval(pollInterval);
+    };
+  }, [started, travelerId]);
+  
   // Auto-scroll transcript
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -476,7 +533,12 @@ export default function InteractPage() {
           <div className="mt-2 text-xs text-muted-foreground">
             {step === 'INIT' && 'Starting...'}
             {step === 'REQUIREMENT_GATHERING' && 'Collecting your preferences'}
-            {step === 'ORCHESTRATION' && 'Coordinating specialist agents'}
+            {step === 'ORCHESTRATION' && (
+              <span className="flex items-center gap-2">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                {visualState?.orchestration_status || 'Coordinating specialist agents...'}
+              </span>
+            )}
             {step === 'PLAN_GENERATION' && 'Generating your itinerary'}
             {step === 'USER_DECISION_LOOP' && 'Review your plan'}
             {step === 'CONFIRMATION' && 'Awaiting your confirmation'}

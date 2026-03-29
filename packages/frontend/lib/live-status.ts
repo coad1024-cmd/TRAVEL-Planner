@@ -8,6 +8,7 @@ export interface FlightStatus {
   gate: string | null;
   terminal: string | null;
   downstream_impact: string | null;
+  cascade_chain?: string[];
 }
 
 export interface HotelNotification {
@@ -16,6 +17,7 @@ export interface HotelNotification {
   message: string;
   action_required: boolean;
   scheduled_time: string;
+  cascade_chain?: string[];
 }
 
 export interface TripAlert {
@@ -26,6 +28,7 @@ export interface TripAlert {
   body: string;
   timestamp: string;
   resolved: boolean;
+  cascade_chain?: string[];
 }
 
 export interface BookingConfirmation {
