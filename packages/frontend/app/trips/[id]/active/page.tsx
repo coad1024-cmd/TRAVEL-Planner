@@ -33,7 +33,7 @@ interface ChatMessage {
 }
 
 interface Expense {
-  id: number;
+  id: string | number;
   description: string;
   amount: number;
   currency: string;
@@ -41,14 +41,9 @@ interface Expense {
   time: string;
 }
 
-const MOCK_EXPENSES: Expense[] = [
-  { id: 1, description: 'Cab to Betaab Valley', amount: 400, currency: 'INR', category: 'Transport', time: '09:00 AM' },
-  { id: 2, description: 'Lunch at Wangnoo Dhaba', amount: 650, currency: 'INR', category: 'Food', time: '01:30 PM' },
-  { id: 3, description: 'Handicraft souvenir', amount: 1200, currency: 'INR', category: 'Shopping', time: '04:00 PM' },
-];
-
 const CATEGORY_COLORS: Record<string, string> = {
   Transport: 'bg-primary/10 text-primary',
+  Hotel: 'bg-primary/10 text-primary',
   Food: 'bg-warning/10 text-warning',
   Shopping: 'bg-accent/20 text-accent-foreground',
   Activities: 'bg-success/10 text-success',
@@ -180,9 +175,22 @@ export default function ActiveTripPage({ params }: { params: { id: string } }) {
   const [language, setLanguage] = useState('auto');
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  const [expenses, setExpenses] = useState<Expense[]>(MOCK_EXPENSES);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [loadingExpenses, setLoadingExpenses] = useState(true);
   const [showAddExpense, setShowAddExpense] = useState(false);
   const [newExpense, setNewExpense] = useState({ description: '', amount: '', category: 'Food' });
+  const [scanning, setScanning] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    fetch(`/api/trips/${params.id}/expenses`)
+      .then(r => r.json())
+      .then(data => {
+        setExpenses(data);
+        setLoadingExpenses(false);
+      })
+      .catch(() => setLoadingExpenses(false));
+  }, [params.id]);
 
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -210,22 +218,48 @@ export default function ActiveTripPage({ params }: { params: { id: string } }) {
     }
   }
 
-  function handleAddExpense(e: FormEvent) {
+  async function handleAddExpense(e: FormEvent) {
     e.preventDefault();
     if (!newExpense.description || !newExpense.amount) return;
-    setExpenses((prev) => [
-      {
-        id: Date.now(),
-        description: newExpense.description,
-        amount: parseFloat(newExpense.amount),
-        currency: 'INR',
-        category: newExpense.category,
-        time: new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
-      },
-      ...prev,
-    ]);
-    setNewExpense({ description: '', amount: '', category: 'Food' });
-    setShowAddExpense(false);
+    
+    try {
+      const res = await fetch(`/api/trips/${params.id}/expenses`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(newExpense),
+      });
+      const data = await res.json();
+      setExpenses((prev) => [data, ...prev]);
+      setNewExpense({ description: '', amount: '', category: 'Food' });
+      setShowAddExpense(false);
+    } catch {
+      alert('Failed to add expense');
+    }
+  }
+
+  async function handleScanReceipt(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setScanning(true);
+    const reader = new FileReader();
+    reader.onloadend = async () => {
+      const base64 = (reader.result as string).split(',')[1];
+      try {
+        const res = await fetch(`/api/trips/${params.id}/expenses/scan`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ imageBase64: base64 }),
+        });
+        const data = await res.json();
+        setExpenses((prev) => [data, ...prev]);
+      } catch {
+        alert('Failed to scan receipt');
+      } finally {
+        setScanning(false);
+      }
+    };
+    reader.readAsDataURL(file);
   }
 
   const totalExpenses = expenses.reduce((sum, e) => sum + e.amount, 0);
@@ -391,9 +425,20 @@ export default function ActiveTripPage({ params }: { params: { id: string } }) {
               <Plus className="h-3.5 w-3.5" />
               Add
             </button>
-            <button className="flex items-center gap-1.5 text-xs font-medium bg-muted text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-lg transition-colors min-h-[36px]">
-              <Camera className="h-3.5 w-3.5" />
-              Scan receipt
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleScanReceipt}
+              className="hidden"
+              accept="image/*"
+            />
+            <button 
+              onClick={() => fileInputRef.current?.click()}
+              disabled={scanning}
+              className="flex items-center gap-1.5 text-xs font-medium bg-muted text-muted-foreground hover:text-foreground px-3 py-1.5 rounded-lg transition-colors min-h-[36px]"
+            >
+              {scanning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Camera className="h-3.5 w-3.5" />}
+              {scanning ? 'Scanning...' : 'Scan receipt'}
             </button>
           </div>
         </div>
