@@ -22,3 +22,10 @@ export async function getTrip(id: string): Promise<any | null> {
   const store = JSON.parse(fs.readFileSync(STORE_FILE, 'utf8'));
   return store[id] || null;
 }
+
+export async function getTrips(): Promise<any[]> {
+  ensureStore();
+  const store = JSON.parse(fs.readFileSync(STORE_FILE, 'utf8'));
+  return Object.values(store).reverse();
+}
+

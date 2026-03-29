@@ -8,3 +8,4 @@ export { handleTravelerMessage } from './relationship-manager.js';
 export { handleManagerMessage, processPaymentFromUI, getManagerSession, resetManagerSession } from './manager-orchestrator.js';
 export type { ManagerStep, VisualState, ManagerResponse, BookingConfirmation } from './manager-orchestrator.js';
 export * from './services/expense-service.js';
+export { callMcpTool } from './mcp-client.js';
