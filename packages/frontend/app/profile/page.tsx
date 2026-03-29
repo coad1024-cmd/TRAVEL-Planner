@@ -1,48 +1,10 @@
+'use client';
+
+import { useState, useEffect } from 'react';
 import type { TravelerProfile } from '@travel/shared';
-import { Shield, Map, Settings, AlertCircle, CheckCircle2, Star, Calendar, Wallet } from 'lucide-react';
+import { Shield, Map, Settings, AlertCircle, CheckCircle2, Star, Calendar, Wallet, Loader2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
-
-const MOCK_PROFILE: TravelerProfile = {
-  id: 'traveler-001',
-  name: 'Arjun Sharma',
-  email: 'arjun.sharma@email.com',
-  phone: '+91 98765 43210',
-  dietary: ['Vegetarian', 'No Onion-Garlic'],
-  allergies: ['Peanuts', 'Shellfish'],
-  room_preferences: {
-    bed_type: 'King',
-    floor: 'High floor',
-    view: 'Mountain view',
-    temperature: 'Cool (20-22°C)',
-  },
-  activity_style: 'Moderate — enjoys scenic hikes and cultural experiences',
-  budget_comfort_zone: {
-    min: { amount: 50000, currency: 'INR' },
-    max: { amount: 200000, currency: 'INR' },
-  },
-  companions: [
-    {
-      name: 'Priya Sharma',
-      relationship: 'Spouse',
-      preferences: { dietary: 'Vegetarian', activity: 'relaxed' },
-    },
-  ],
-  documents: [
-    { type: 'passport', number: 'P1234567', country: 'IN', expiry: '2028-11-15' },
-    { type: 'visa', number: 'V987654', country: 'US', expiry: '2026-05-20' },
-    { type: 'insurance', number: 'INS-2024-88765', country: 'IN', expiry: '2026-03-31' },
-    { type: 'vaccination', number: 'VAC-COVID-XYZ', country: 'IN', expiry: '2027-06-01' },
-  ],
-  trip_history: ['trip-001', 'trip-002'],
-  loyalty_tier: 'gold',
-  created_at: '2023-01-15T10:00:00Z',
-  updated_at: '2026-03-20T08:30:00Z',
-};
-
-const PAST_TRIPS = [
-  { id: 'trip-001', destination: 'Goa, India', dates: 'Dec 20–27, 2024', purpose: 'Family', status: 'completed', rating: 4, spent: '₹85,000' },
-  { id: 'trip-002', destination: 'Manali, Himachal Pradesh', dates: 'Aug 5–12, 2025', purpose: 'Adventure', status: 'completed', rating: 5, spent: '₹72,000' },
-];
+import Link from 'next/link';
 
 const DOC_META: Record<string, { label: string; icon: string }> = {
   passport: { label: 'Passport', icon: '🛂' },
@@ -70,19 +32,43 @@ function fmtExpiry(expiry: string): string {
 }
 
 export default function ProfilePage() {
-  const p = MOCK_PROFILE;
+  const [profile, setProfile] = useState<TravelerProfile | null>(null);
+  const [trips, setTrips] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    Promise.all([
+      fetch('/api/profile').then(r => r.json()),
+      fetch('/api/trips').then(r => r.json())
+    ]).then(([pData, tData]) => {
+      setProfile(pData);
+      setTrips(tData);
+      setLoading(false);
+    }).catch(() => setLoading(false));
+  }, []);
+
+  if (loading) return (
+    <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
+      <Loader2 className="h-10 w-10 animate-spin text-primary" />
+      <p className="text-muted-foreground font-medium">Syncing profile data...</p>
+    </div>
+  );
+
+  if (!profile) return <div>Failed to load profile.</div>;
+
+  const p = profile;
   const tier = TIER_CONFIG[p.loyalty_tier] ?? TIER_CONFIG.bronze;
-  const initials = p.name.split(' ').map((n) => n[0]).join('').slice(0, 2);
+  const initials = p.name ? p.name.split(' ').map((n) => n[0]).join('').slice(0, 2) : 'TR';
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-3xl mx-auto space-y-6 animate-fade-in">
       <h1 className="text-3xl font-bold tracking-tight text-foreground">Traveller Profile</h1>
 
       {/* Identity card */}
-      <div className="bg-card rounded-2xl border border-border p-6">
+      <div className="bg-card rounded-2xl border border-border p-6 shadow-sm">
         <div className="flex items-start justify-between gap-4 flex-wrap">
           <div className="flex items-center gap-4">
-            <div className="w-16 h-16 rounded-2xl bg-primary flex items-center justify-center text-primary-foreground text-xl font-bold shrink-0 shadow-sm">
+            <div className="w-16 h-16 rounded-2xl bg-primary flex items-center justify-center text-primary-foreground text-xl font-bold shrink-0 shadow-sm transition-transform hover:scale-105">
               {initials}
             </div>
             <div>
@@ -91,17 +77,17 @@ export default function ProfilePage() {
               <div className="text-sm text-muted-foreground">{p.phone}</div>
             </div>
           </div>
-          <span className={cn('text-sm font-semibold px-3.5 py-1.5 rounded-full border capitalize', tier.className)}>
+          <span className={cn('text-sm font-semibold px-3.5 py-1.5 rounded-full border capitalize shadow-sm', tier.className)}>
             ★ {tier.label} Member
           </span>
         </div>
 
-        {p.companions.length > 0 && (
+        {p.companions?.length > 0 && (
           <div className="mt-5 pt-5 border-t border-border">
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Companions</div>
             <div className="flex flex-wrap gap-2">
               {p.companions.map((c, i) => (
-                <div key={i} className="flex items-center gap-2 bg-secondary text-secondary-foreground text-sm px-3 py-1.5 rounded-full">
+                <div key={i} className="flex items-center gap-2 bg-secondary text-secondary-foreground text-sm px-3 py-1.5 rounded-full hover:bg-secondary/80 transition-colors">
                   <span className="font-medium">{c.name}</span>
                   <span className="text-muted-foreground text-xs">· {c.relationship}</span>
                 </div>
@@ -112,17 +98,17 @@ export default function ProfilePage() {
       </div>
 
       {/* Document vault */}
-      <div className="bg-card rounded-2xl border border-border overflow-hidden">
-        <div className="px-6 py-4 border-b border-border flex items-center gap-2">
+      <div className="bg-card rounded-2xl border border-border overflow-hidden shadow-sm hover:shadow-md transition-shadow">
+        <div className="px-6 py-4 border-b border-border flex items-center gap-2 bg-muted/20">
           <Shield className="h-4.5 w-4.5 text-primary" size={18} />
           <h2 className="text-sm font-semibold text-foreground">Document Vault</h2>
         </div>
         <div className="divide-y divide-border">
-          {p.documents.map((doc, i) => {
+          {p.documents?.map((doc, i) => {
             const expiring = isExpiringSoon(doc.expiry);
             const meta = DOC_META[doc.type] ?? { label: doc.type, icon: '📄' };
             return (
-              <div key={i} className={cn('flex items-center justify-between px-6 py-4 gap-4', expiring && 'bg-warning/5')}>
+              <div key={i} className={cn('flex items-center justify-between px-6 py-4 gap-4 transition-colors hover:bg-muted/10', expiring && 'bg-warning/5')}>
                 <div className="flex items-center gap-3 min-w-0">
                   <span className="text-lg shrink-0">{meta.icon}</span>
                   <div className="min-w-0">
@@ -140,7 +126,7 @@ export default function ProfilePage() {
                     <div className={cn('text-sm font-medium', expiring ? 'text-warning' : 'text-foreground')}>{fmtExpiry(doc.expiry)}</div>
                   </div>
                   {expiring ? (
-                    <div className="flex items-center gap-1 text-xs font-semibold text-warning bg-warning/15 border border-warning/25 px-2.5 py-1 rounded-full">
+                    <div className="flex items-center gap-1 text-xs font-semibold text-warning bg-warning/15 border border-warning/25 px-2.5 py-1 rounded-full animate-pulse">
                       <AlertCircle className="h-3 w-3" />
                       Expiring
                     </div>
@@ -154,12 +140,17 @@ export default function ProfilePage() {
               </div>
             );
           })}
+          {(!p.documents || p.documents.length === 0) && (
+            <div className="px-6 py-12 text-center text-muted-foreground text-sm">
+              No documents securely stored yet.
+            </div>
+          )}
         </div>
       </div>
 
       {/* Preferences */}
-      <div className="bg-card rounded-2xl border border-border overflow-hidden">
-        <div className="px-6 py-4 border-b border-border flex items-center gap-2">
+      <div className="bg-card rounded-2xl border border-border overflow-hidden shadow-sm">
+        <div className="px-6 py-4 border-b border-border flex items-center gap-2 bg-muted/20">
           <Settings className="h-4.5 w-4.5 text-primary" size={18} />
           <h2 className="text-sm font-semibold text-foreground">Preferences</h2>
         </div>
@@ -168,74 +159,123 @@ export default function ProfilePage() {
             <div>
               <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Dietary</div>
               <div className="flex flex-wrap gap-2">
-                {p.dietary.map((d) => (
-                  <span key={d} className="text-xs font-medium bg-success/10 text-success border border-success/20 px-2.5 py-1 rounded-full">{d}</span>
+                {p.dietary?.map((d) => (
+                  <span key={d} className="text-xs font-medium bg-success/10 text-success border border-success/20 px-2.5 py-1 rounded-full capitalize">{d}</span>
                 ))}
               </div>
             </div>
-            {p.allergies.length > 0 && (
+            {p.allergies?.length > 0 && (
               <div>
                 <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Allergies</div>
                 <div className="flex flex-wrap gap-2">
                   {p.allergies.map((a) => (
-                    <span key={a} className="text-xs font-medium bg-destructive/10 text-destructive border border-destructive/20 px-2.5 py-1 rounded-full">🚫 {a}</span>
+                    <span key={a} className="text-xs font-medium bg-destructive/10 text-destructive border border-destructive/20 px-2.5 py-1 rounded-full capitalize">🚫 {a}</span>
                   ))}
                 </div>
               </div>
             )}
             <div>
               <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Activity Style</div>
-              <p className="text-sm text-foreground">{p.activity_style}</p>
+              <p className="text-sm text-foreground capitalize">{p.activity_style}</p>
             </div>
           </div>
           <div>
             <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">Room Preferences</div>
             <div className="bg-muted/30 rounded-xl border border-border divide-y divide-border">
-              {Object.entries(p.room_preferences).map(([k, v]) => (
+              {Object.entries(p.room_preferences || {}).map(([k, v]) => (
                 <div key={k} className="flex justify-between items-center px-3.5 py-2.5">
                   <span className="text-xs text-muted-foreground capitalize">{k.replace('_', ' ')}</span>
                   <span className="text-xs font-semibold text-foreground">{v as string}</span>
                 </div>
               ))}
+              {Object.keys(p.room_preferences || {}).length === 0 && (
+                <div className="px-3.5 py-4 text-center text-xs text-muted-foreground">Standard settings</div>
+              )}
             </div>
           </div>
         </div>
       </div>
 
       {/* Trip history */}
-      <div className="bg-card rounded-2xl border border-border overflow-hidden">
-        <div className="px-6 py-4 border-b border-border flex items-center gap-2">
+      <div className="bg-card rounded-2xl border border-border overflow-hidden shadow-sm">
+        <div className="px-6 py-4 border-b border-border flex items-center gap-2 bg-muted/20">
           <Map className="h-4.5 w-4.5 text-primary" size={18} />
           <h2 className="text-sm font-semibold text-foreground">Trip History</h2>
         </div>
         <div className="divide-y divide-border">
-          {PAST_TRIPS.map((trip) => (
-            <div key={trip.id} className="flex items-center justify-between px-6 py-4 hover:bg-muted/30 transition-colors gap-4">
-              <div className="min-w-0">
-                <div className="font-semibold text-foreground text-sm">{trip.destination}</div>
-                <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
-                  <span className="flex items-center gap-1"><Calendar className="h-3 w-3" />{trip.dates}</span>
-                  <span>· {trip.purpose}</span>
+          {trips.map((trip) => {
+            const m = trip.metadata;
+            const status = trip.state || 'planned';
+            const spent = trip.itinerary?.items?.reduce((sum: number, item: any) => sum + (item.price?.amount || 0), 0) || 0;
+            const currency = trip.itinerary?.items?.[0]?.price?.currency || 'INR';
+
+            return (
+              <Link
+                key={trip.trip_id}
+                href={`/trips/${trip.trip_id}${status === 'active' ? '/active' : ''}`}
+                className="flex items-center justify-between px-6 py-4 hover:bg-muted/30 transition-all gap-4 group"
+              >
+                <div className="min-w-0">
+                  <div className="font-semibold text-foreground text-sm group-hover:text-primary transition-colors">{m.destination}</div>
+                  <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1">
+                    <span className="flex items-center gap-1">
+                      <Calendar className="h-3 w-3" />
+                      {new Date(m.dates?.start).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' })} – {new Date(m.dates?.end).toLocaleDateString('en-IN', { month: 'short', day: 'numeric', year: 'numeric' })}
+                    </span>
+                    <span className="capitalize">· {m.purpose}</span>
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-4 shrink-0">
-                <div className="text-right hidden sm:block">
-                  <div className="flex items-center gap-1 text-xs text-muted-foreground mb-0.5"><Wallet className="h-3 w-3" />Spent</div>
-                  <div className="text-sm font-semibold text-foreground">{trip.spent}</div>
+                <div className="flex items-center gap-4 shrink-0">
+                  <div className="text-right hidden sm:block">
+                    <div className="flex items-center gap-1 text-xs text-muted-foreground mb-0.5 justify-end">
+                      <Wallet className="h-3 w-3" />
+                      Est. Spent
+                    </div>
+                    <div className="text-sm font-semibold text-foreground">
+                      {spent > 0 ? `${currency === 'INR' ? '₹' : '$'}${spent.toLocaleString('en-IN')}` : '–'}
+                    </div>
+                  </div>
+                  <span className={cn(
+                    'text-[10px] font-bold uppercase px-2.5 py-1 rounded-full border tracking-tight',
+                    status === 'active' ? 'bg-primary/10 text-primary border-primary/20' :
+                    status === 'completed' ? 'bg-success/10 text-success border-success/20' :
+                    'bg-muted text-muted-foreground border-border'
+                  )}>
+                    {status}
+                  </span>
+                  <ChevronRight className="h-4 w-4 text-muted-foreground group-hover:translate-x-0.5 transition-transform" />
                 </div>
-                <div className="flex gap-0.5">
-                  {[1, 2, 3, 4, 5].map((s) => (
-                    <Star key={s} className={cn('h-4 w-4', s <= trip.rating ? 'fill-warning text-warning' : 'text-border fill-transparent')} />
-                  ))}
-                </div>
-                <span className="text-xs font-semibold text-success bg-success/10 border border-success/20 px-2.5 py-1 rounded-full capitalize">
-                  {trip.status}
-                </span>
-              </div>
+              </Link>
+            );
+          })}
+          {trips.length === 0 && (
+            <div className="px-6 py-12 text-center">
+              <p className="text-sm text-muted-foreground mb-4">You haven't planned any trips yet.</p>
+              <Link href="/" className="text-sm font-bold text-primary hover:underline">Start planning your first journey →</Link>
             </div>
-          ))}
+          )}
         </div>
       </div>
     </div>
   );
 }
+
+function ChevronRight(props: any) {
+  return (
+    <svg
+      {...props}
+      xmlns="http://www.w3.org/2000/svg"
+      width="24"
+      height="24"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d="m9 18 6-6-6-6" />
+    </svg>
+  )
+}
+
