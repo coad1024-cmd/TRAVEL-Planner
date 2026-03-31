@@ -21,24 +21,78 @@ export async function POST(request: NextRequest) {
 
     console.log('[API] Starting orchestration for:', body.destination);
     
-    // In a real app, this would be non-blocking with a status check
-    const result = await orchestrateTrip(tripRequest);
-    
-    // Add the trip metadata to the result for display
-    const finalData = {
-        ...result,
+    let finalData;
+    if (!process.env.ANTHROPIC_API_KEY) {
+      console.warn('[API] ANTHROPIC_API_KEY missing, using mock orchestration');
+      const mockResult = getMockOrchestration(body);
+      finalData = {
+        ...mockResult,
         trip_id: tripId,
         metadata: tripRequest
-    };
+      };
+    } else {
+      // In a real app, this would be non-blocking with a status check
+      const result = await orchestrateTrip(tripRequest);
+      
+      // Add the trip metadata to the result for display
+      finalData = {
+          ...result,
+          trip_id: tripId,
+          metadata: tripRequest
+      };
+    }
     
     await saveTrip(tripId, finalData);
     
     return NextResponse.json(
-      { id: tripId, status: result.state },
+      { id: tripId, status: (finalData as any).state || 'PRESENT' },
       { status: 201 }
     );
   } catch (err: any) {
     console.error('[API] Orchestration failed:', err);
     return NextResponse.json({ error: err.message || 'Orchestration failed' }, { status: 500 });
   }
+}
+
+function getMockOrchestration(body: any) {
+    return {
+        state: 'PRESENT',
+        itinerary: [
+            {
+                day_number: 1,
+                date: body.dates?.start || '2026-05-01',
+                segments: [
+                    {
+                        type: 'transport',
+                        mode: 'Flight',
+                        carrier: 'Demo Airlines',
+                        origin: { name: 'Home' },
+                        destination: { name: body.destination },
+                        cost: { amount: 12000, currency: body.budget?.currency || 'INR' }
+                    },
+                    {
+                        type: 'accommodation',
+                        property_name: 'Grand Mock Hotel',
+                        location: body.destination,
+                        cost: { amount: 8000, currency: body.budget?.currency || 'INR' }
+                    }
+                ],
+                risk_level: 'low',
+                weather_summary: 'Sunny with a light breeze',
+                nearest_hospital_km: 2.5
+            }
+        ],
+        budget: {
+            total_budget: body.budget,
+            total_spent: { amount: 20000, currency: body.budget?.currency || 'INR' },
+            percent_used: 25,
+            by_category: {
+                transport: { amount: 12000 },
+                accommodation: { amount: 8000 }
+            }
+        },
+        pre_departure_checklist: { items: [] },
+        itinerary_version: { version_number: 1 },
+        messages: []
+    };
 }

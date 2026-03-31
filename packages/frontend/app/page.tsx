@@ -20,7 +20,8 @@ import {
   Plane,
   Home,
   Utensils,
-  Compass
+  Compass,
+  RefreshCw
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { DestinationSelector } from '../components/ui/DestinationSelector';
@@ -509,24 +510,3 @@ export default function TripRequestPage() {
   );
 }
 
-function RefreshCw(props: any) {
-  return (
-    <svg
-      {...props}
-      xmlns="http://www.w3.org/2000/svg"
-      width="24"
-      height="24"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
-      <path d="M21 3v5h-5" />
-      <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
-      <path d="M3 21v-5h5" />
-    </svg>
-  )
-}
