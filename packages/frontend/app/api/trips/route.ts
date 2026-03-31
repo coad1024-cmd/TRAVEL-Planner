@@ -55,8 +55,14 @@ export async function POST(request: NextRequest) {
 }
 
 function getMockOrchestration(body: any) {
+    const currency = body.budget?.currency || 'INR';
+    const total_budget = body.budget?.amount || 50000;
+    const total_spent = 20000;
+    const remaining = total_budget - total_spent;
+
     return {
         state: 'PRESENT',
+        destination: body.destination,
         itinerary: [
             {
                 day_number: 1,
@@ -64,17 +70,24 @@ function getMockOrchestration(body: any) {
                 segments: [
                     {
                         type: 'transport',
-                        mode: 'Flight',
+                        mode: 'flight',
                         carrier: 'Demo Airlines',
                         origin: { name: 'Home' },
                         destination: { name: body.destination },
-                        cost: { amount: 12000, currency: body.budget?.currency || 'INR' }
+                        departure: new Date().toISOString(),
+                        arrival: new Date(Date.now() + 3600000 * 5).toISOString(),
+                        cost: { amount: 12000, currency },
+                        flight_number: 'DA-123'
                     },
                     {
                         type: 'accommodation',
                         property_name: 'Grand Mock Hotel',
-                        location: body.destination,
-                        cost: { amount: 8000, currency: body.budget?.currency || 'INR' }
+                        location: { name: body.destination },
+                        nightly_rate: { amount: 4000, currency },
+                        total_cost: { amount: 8000, currency },
+                        amenities: ['Wi-Fi', 'Pool', 'Breakfast'],
+                        cancellation_policy: 'Free cancellation 48h before',
+                        cost: { amount: 8000, currency }
                     }
                 ],
                 risk_level: 'low',
@@ -83,13 +96,15 @@ function getMockOrchestration(body: any) {
             }
         ],
         budget: {
-            total_budget: body.budget,
-            total_spent: { amount: 20000, currency: body.budget?.currency || 'INR' },
-            percent_used: 25,
+            total_budget: { amount: total_budget, currency },
+            total_spent: { amount: total_spent, currency },
+            remaining: { amount: remaining, currency },
+            percent_used: (total_spent / total_budget) * 100,
             by_category: {
                 transport: { amount: 12000 },
                 accommodation: { amount: 8000 }
-            }
+            },
+            alerts: []
         },
         pre_departure_checklist: { items: [] },
         itinerary_version: { version_number: 1 },
