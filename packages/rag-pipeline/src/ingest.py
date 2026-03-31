@@ -21,7 +21,7 @@ load_dotenv(Path(__file__).parent.parent.parent.parent / ".env")
 
 from .chroma_client import setup_all_collections, get_or_create_collection, get_chroma_client, get_embedding_function
 from .chunker import chunk_document
-from .collections import COLLECTIONS
+from .rag_specs import COLLECTIONS
 from .metadata_enricher import enrich_chunk_metadata, needs_human_review
 
 
