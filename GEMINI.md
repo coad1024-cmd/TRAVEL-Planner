@@ -60,10 +60,13 @@ python3 -m src.firecrawl_scraper --url "https://example.com/tips" --collection "
 # Crawl a site for comments/reviews
 python3 -m src.firecrawl_scraper --mode "crawl" --url "https://reddit.com/r/travel" --collection "traveler_reviews" --limit 10
 
-# Auto-source comments for a region
-python3 -m src.comment_sourcer --region "pahalgam"
+# Auto-source comments for a region (Forums, Blogs, etc.)
+python3 -m src.comment_sourcer --region "pahalgam" --mode "comprehensive"
+
+# Source from YouTube (Vlogs, Transcripts)
+python3 -m src.youtube_sourcer --url "https://www.youtube.com/watch?v=VIDEO_ID" --region "kashmir"
 ```
-*Note: Requires `FIRECRAWL_API_KEY` in `.env`.*
+*Note: Requires `FIRECRAWL_API_KEY` in `.env`. YouTube sourcing does not require an API key but needs the video ID.*
 
 ### Running the System
 ```bash
