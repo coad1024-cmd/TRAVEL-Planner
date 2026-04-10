@@ -17,7 +17,7 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel, Field
 
 from .chroma_client import get_chroma_client, get_or_create_collection, get_embedding_function
-from .collections import COLLECTIONS
+from .rag_specs import COLLECTIONS
 
 app = FastAPI(title="Travel RAG Retrieval Service", version="1.0.0")
 

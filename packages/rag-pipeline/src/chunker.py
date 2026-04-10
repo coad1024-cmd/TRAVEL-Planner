@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from typing import Any
 import re
 
-from .collections import COLLECTION_SPECS
+from .rag_specs import COLLECTION_SPECS
 
 
 @dataclass

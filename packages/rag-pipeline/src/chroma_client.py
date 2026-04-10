@@ -12,7 +12,7 @@ import chromadb
 from chromadb import Collection
 from chromadb.utils import embedding_functions
 
-from .collections import COLLECTIONS
+from .rag_specs import COLLECTIONS
 
 
 def get_persist_path() -> str:
