@@ -38,6 +38,33 @@ pip install -r requirements.txt
 python3 src/ingest.py --seed
 ```
 
+### RAG Pipeline & Knowledge Sourcing
+The system uses a Python-based RAG pipeline with ChromaDB and OpenAI embeddings. Knowledge can be sourced from documents or web crawls.
+
+#### Setup RAG
+```bash
+# Install dependencies
+cd packages/rag-pipeline
+pip install -r requirements.txt
+
+# Start RAG retrieval service
+python3 -m src.retrieval_service
+```
+
+#### Sourcing Knowledge with Firecrawl
+Turn websites and comments into LLM-ready knowledge:
+```bash
+# Scrape a specific URL
+python3 -m src.firecrawl_scraper --url "https://example.com/tips" --collection "local_knowledge"
+
+# Crawl a site for comments/reviews
+python3 -m src.firecrawl_scraper --mode "crawl" --url "https://reddit.com/r/travel" --collection "traveler_reviews" --limit 10
+
+# Auto-source comments for a region
+python3 -m src.comment_sourcer --region "pahalgam"
+```
+*Note: Requires `FIRECRAWL_API_KEY` in `.env`.*
+
 ### Running the System
 ```bash
 # Start Docker services (Postgres, Redis, ChromaDB)

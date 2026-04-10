@@ -5,3 +5,4 @@ uvicorn[standard]==0.31.1
 python-dotenv==1.0.1
 pydantic==2.9.2
 unstructured[pdf]==0.15.14
+firecrawl-py==1.0.0

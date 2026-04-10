@@ -1,0 +1,27 @@
+[terminal.shell]
+program = "/usr/bin/tmux"
+args = ["new-session", "-A", "-s", "default"]
+
+[window]
+padding = { x = 10, y = 10 }
+dynamic_padding = true
+
+# Add transparency (1.0 is opaque, 0.0 is fully transparent)
+opacity = 0.70
+blur = true
+
+
+[font]
+# You can uncomment and change the font family if you have custom fonts installed!
+# normal = { family = "DejaVu Sans Mono", style = "Regular" }
+size = 12.0
+
+[colors.primary]
+background = "#000000"
+foreground = "#FFFFFF"
+
+[colors.cursor]
+text = "CellBackground"
+cursor = "CellForeground"
+
+[terminal]

@@ -1,0 +1,53 @@
+{
+  "name": "@roychri/mcp-server-asana",
+  "publishConfig": {
+    "access": "public"
+  },
+  "version": "1.8.0",
+  "description": "MCP Server for Asana",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/roychri/mcp-server-asana.git"
+  },
+  "homepage": "https://github.com/roychri/mcp-server-asana?tab=readme-ov-file#mcp-server-for-asana",
+  "main": "dist/index.js",
+  "type": "module",
+  "bin": {
+    "mcp-server-asana": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node build.js",
+    "prepare": "npm run build",
+    "start": "node dist/index.js",
+    "dev": "NODE_ENV=development NODE_OPTIONS='--loader ts-node/esm' node --experimental-specifier-resolution=node src/index.ts",
+    "watch": "tsc -w",
+    "prepublishOnly": "npm run build",
+    "inspector": "npx @modelcontextprotocol/inspector dist/index.js"
+  },
+  "keywords": [
+    "asana",
+    "mcp",
+    "anthropic"
+  ],
+  "author": "Christian Roy",
+  "license": "MIT",
+  "devDependencies": {
+    "@modelcontextprotocol/inspector": "^0.4.0",
+    "@tsconfig/node20": "^20.1.4",
+    "@types/jsdom": "^21.1.7",
+    "@types/node": "^22.10.1",
+    "esbuild": "^0.24.0",
+    "esbuild-register": "^3.6.0",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.7.2"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.4.1",
+    "asana": "^3.0.12",
+    "jsdom": "^27.4.0"
+  }
+}

@@ -89,14 +89,24 @@ export async function handleConciergeQuery(
     }
   }
 
-  const [data1 = null, data2 = null] = await Promise.all(promises);
+  // Add RAG retrieval for local knowledge and tips
+  promises.push(
+    callMcpTool('mcp-rag', 'rag_retrieve', {
+      collection: 'local_knowledge',
+      query: message,
+      top_k: 3,
+      filters: { region: location?.toLowerCase() || 'india' }
+    }).catch(() => ({ chunks: [] }))
+  );
+
+  const [data1 = null, data2 = null, ragData = null] = await Promise.all(promises);
 
   // Build context for Claude
   const locationContext = gps
     ? `Traveler GPS: ${gps.lat}, ${gps.lng} — ${mapsLink('location', gps.lat, gps.lng)}`
     : `Location: ${fallbackLocation}`;
 
-  const dataContext = [data1, data2]
+  const dataContext = [data1, data2, ragData]
     .filter(Boolean)
     .map(d => JSON.stringify(d))
     .join('\n');

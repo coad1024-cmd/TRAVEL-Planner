@@ -1,0 +1,8 @@
+_NOTES.md
+CLAUDE.local.md
+node_modules
+dist
+.aider*
+.env
+!.aider.conf.yml
+!.aiderignore
