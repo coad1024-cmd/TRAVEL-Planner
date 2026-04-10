@@ -76,18 +76,24 @@ function verifyTelegramSecret(payload: string, signature: string): boolean {
 }
 
 // #5: HMAC verification for FlightAware and Booking.com webhooks
-function verifyFlightAwareSignature(payload: string, signature: string): boolean {
+export function verifyFlightAwareSignature(payload: string, signature: string): boolean {
   const secret = process.env.FLIGHTAWARE_WEBHOOK_SECRET;
   if (!secret) return true; // Skip in dev; enforce in production
   const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
-  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+  const expectedBuf = Buffer.from(expected);
+  const signatureBuf = Buffer.from(signature);
+  if (expectedBuf.length !== signatureBuf.length) return false;
+  return crypto.timingSafeEqual(expectedBuf, signatureBuf);
 }
 
-function verifyBookingSignature(payload: string, signature: string): boolean {
+export function verifyBookingSignature(payload: string, signature: string): boolean {
   const secret = process.env.BOOKING_WEBHOOK_SECRET;
   if (!secret) return true;
   const expected = crypto.createHmac('sha256', secret).update(payload).digest('hex');
-  return crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(signature));
+  const expectedBuf = Buffer.from(expected);
+  const signatureBuf = Buffer.from(signature);
+  if (expectedBuf.length !== signatureBuf.length) return false;
+  return crypto.timingSafeEqual(expectedBuf, signatureBuf);
 }
 
 // #5: Simple in-memory rate limiter — sliding window per IP
@@ -95,13 +101,17 @@ const rateLimitMap = new Map<string, number[]>();
 const RATE_LIMIT_WINDOW_MS = 60_000; // 1 minute
 const RATE_LIMIT_MAX_REQUESTS = 100;
 
-function checkRateLimit(ip: string): boolean {
+export function checkRateLimit(ip: string): boolean {
   const now = Date.now();
   const timestamps = (rateLimitMap.get(ip) ?? []).filter(t => now - t < RATE_LIMIT_WINDOW_MS);
   if (timestamps.length >= RATE_LIMIT_MAX_REQUESTS) return false;
   timestamps.push(now);
   rateLimitMap.set(ip, timestamps);
   return true;
+}
+
+export function resetRateLimits(): void {
+  rateLimitMap.clear();
 }
 
 // Cleanup rate limit map every 5 minutes to avoid memory growth

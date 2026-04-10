@@ -29,7 +29,7 @@ const PAHALGAM_MONTHLY: Record<number, { avg_high: number; avg_low: number; avg_
   12: { avg_high: 3, avg_low: -6, avg_rain_mm: 65, description: 'Winter sets in, heavy snowfall, limited access.' },
 };
 
-function mockForecast(lat: number, lng: number, daysAhead: number): WeatherForecast[] {
+export function mockForecast(lat: number, lng: number, daysAhead: number): WeatherForecast[] {
   const base = new Date();
   const isPahalgam = Math.abs(lat - 34.0161) < 1 && Math.abs(lng - 75.3147) < 1;
   return Array.from({ length: Math.min(daysAhead, 7) }, (_, i) => {
@@ -51,7 +51,7 @@ function mockForecast(lat: number, lng: number, daysAhead: number): WeatherForec
   });
 }
 
-async function fetchForecast(lat: number, lng: number, daysAhead: number): Promise<WeatherForecast[]> {
+export async function fetchForecast(lat: number, lng: number, daysAhead: number): Promise<WeatherForecast[]> {
   if (!OWM_KEY) return mockForecast(lat, lng, daysAhead);
 
   return await cb.execute(async () => {

@@ -5,7 +5,7 @@
  */
 import Anthropic from '@anthropic-ai/sdk';
 import type { TravelSystemEvent, ItineraryDay, ReroutingTimeoutPolicy } from '@travel/shared';
-import { DEFAULT_REROUTING_POLICIES, subscribeToEvents, publishEvent } from '@travel/shared';
+import { DEFAULT_REROUTING_POLICIES, subscribeToEvents, publishEvent, getPrisma } from '@travel/shared';
 import { callMcpTool } from './mcp-client.js';
 
 const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
@@ -48,6 +48,26 @@ export async function analyzeDisruption(
     case 'flight.status_changed': {
       const { flight_number, new_status, delay_minutes } = event.data;
       disruptionContext = `Flight ${flight_number} is ${new_status} with ${delay_minutes} min delay.`;
+
+      // Auto-notify hotel if delay is significant (> 30 min)
+      if (delay_minutes > 30) {
+        try {
+          const hotel = currentItinerary
+            .flatMap(d => d.segments)
+            .find(s => s.type === 'accommodation');
+          
+          if (hotel && hotel.type === 'accommodation') {
+            await callMcpTool('mcp-notifications', 'send_email', {
+              to: 'frontdesk@hotel.com', // Would be hotel's email
+              subject: `Late Check-in Notification: Trip ${event.trip_id}`,
+              html_body: `<p>Dear Front Desk,</p><p>Our traveler on flight ${flight_number} is experiencing a delay of ${delay_minutes} minutes. Their estimated arrival is now later than planned. Please hold their reservation.</p>`
+            });
+            console.log(`[LiveRerouting] Auto-notified hotel ${hotel.property_name} about flight ${flight_number} delay.`);
+          }
+        } catch (e) {
+          console.error('[LiveRerouting] Failed to notify hotel:', e);
+        }
+      }
 
       // Get alternative flights
       if (delay_minutes > 60) {
@@ -144,7 +164,7 @@ export async function applyRerouting(
   proposal: ReroutingProposal,
   currentItinerary: ItineraryDay[],
 ): Promise<ItineraryDay[]> {
-  // Publish confirmation event
+  // 1. Publish confirmation event
   await publishEvent({
     event_type: 'booking.confirmation',
     trip_id: tripId,
@@ -156,11 +176,27 @@ export async function applyRerouting(
       provider: 'live-rerouting-agent',
       reference: `Changes: ${proposal.proposed_changes.join('; ')}`,
     },
-  }).catch(() => {}); // Best-effort
+  }).catch(() => {});
 
-  // In production: update PostgreSQL trip_segments table
+  // 2. Persist to DB if Prisma is available
+  const prisma = await getPrisma() as any;
+  if (prisma) {
+    try {
+      await prisma.trip.update({
+        where: { id: tripId },
+        data: {
+          itinerary: currentItinerary, // In production, we would merge proposal.proposed_changes into this
+          updatedAt: new Date(),
+        }
+      });
+      console.log(`[LiveRerouting] Persisted updated itinerary for trip ${tripId} to database.`);
+    } catch (err) {
+      console.error(`[LiveRerouting] Failed to persist trip update:`, err);
+    }
+  }
+
   console.log(`[LiveRerouting] Applied changes to trip ${tripId}: ${proposal.proposed_changes.join('; ')}`);
-  return currentItinerary; // Return modified itinerary (simplified)
+  return currentItinerary; 
 }
 
 // #4: Pending approval queue — keyed by trip_id + event timestamp
