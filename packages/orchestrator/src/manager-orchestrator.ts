@@ -36,6 +36,7 @@ export interface VisualState {
   payment_status: 'idle' | 'pending' | 'processing' | 'success' | 'failed';
   payment_method: string | null;
   booking_confirmation: BookingConfirmation | null;
+  orchestration_status?: string;
 }
 
 export interface ConversationTurn {
@@ -74,7 +75,8 @@ function getClaude() {
 
 // ─── System Prompts ──────────────────────────────────────
 
-const MANAGER_SYSTEM_PROMPT = `You are the Manager Agent — the sole user-facing entity in a voice-first travel planning system.
+function getManagerSystemPrompt(language: string = 'en') {
+  const base = `You are the Manager Agent — the sole user-facing entity in a voice-first travel planning system.
 Your responses will be spoken aloud via TTS. Keep them:
 - Brief and conversational (1-3 sentences max)
 - Warm, confident, and anticipatory — like a luxury concierge
@@ -82,15 +84,25 @@ Your responses will be spoken aloud via TTS. Keep them:
 - Natural pauses with commas for TTS clarity
 
 You orchestrate a team of specialist sub-agents (Flight, Hotel, Transport, Activity) behind the scenes.
-The user never sees or interacts with sub-agents directly. You present their work as your own seamless service.
+The user never sees or interacts with sub-agents directly. You present their work as your own seamless service.`;
 
-Your flow:
-1. Greet and start collecting requirements via conversation
-2. Once you have all details, acknowledge and begin planning
-3. Present the plan with voice summary + visual dashboard
-4. Accept feedback and iterate until the user approves
-5. Get explicit confirmation before payment
-6. Process payment and send confirmations`;
+  if (language === 'hi') {
+    return `${base}
+- RESPONSE_LANGUAGE: PURE HINDI.
+- Use warm, respectful Hindi (Aap/Ji).
+- Ensure the tone is premium and helpful.`;
+  }
+
+  if (language === 'hinglish') {
+    return `${base}
+- RESPONSE_LANGUAGE: HINGLISH (Natural mix of Hindi and English).
+- Use Hindi for sentence structure and English for travel keywords (flight, hotel, booking, itinerary, budget).
+- Example: "Aapka flight Delhi se Srinagar ke liye confirm ho gaya hai, aur hotel booking bhi process ho rahi hai."`;
+  }
+
+  return `${base}
+- RESPONSE_LANGUAGE: ENGLISH.`;
+}
 
 const INTENT_PROMPT = `You are classifying a traveler's message intent.
 Respond with ONLY one of these exact strings:
@@ -124,6 +136,7 @@ interface ManagerSession {
   payment_method: string | null;
   booking_confirmation: BookingConfirmation | null;
   registry: AgentRegistry | null;
+  orchestration_status?: string;
 }
 
 const REDIS_URL = process.env.REDIS_URL;
@@ -166,7 +179,7 @@ async function saveSession(session: ManagerSession): Promise<void> {
   }
 }
 
-function buildVisualState(session: ManagerSession): VisualState {
+export function buildVisualState(session: ManagerSession): VisualState {
   return {
     step: session.step,
     transcript: session.transcript,
@@ -177,6 +190,7 @@ function buildVisualState(session: ManagerSession): VisualState {
     payment_status: session.payment_status,
     payment_method: session.payment_method,
     booking_confirmation: session.booking_confirmation,
+    orchestration_status: session.orchestration_status,
   };
 }
 
@@ -267,19 +281,21 @@ function mergeTripData(existing: Partial<TripRequest>, incoming: Partial<TripReq
   };
 }
 
-async function generateVoiceResponse(prompt: string, transcript: ConversationTurn[]): Promise<string> {
+async function generateVoiceResponse(prompt: string, transcript: ConversationTurn[], language: string = 'en'): Promise<string> {
   const messages = transcript.slice(-6).map(t => ({ role: t.role as 'user' | 'assistant', content: t.content }));
   messages.push({ role: 'user', content: prompt });
   try {
     const response = await getClaude().messages.create({
       model: 'claude-haiku-4-5-20251001',
       max_tokens: 200,
-      system: MANAGER_SYSTEM_PROMPT,
+      system: getManagerSystemPrompt(language),
       messages: messages as any,
     });
     return response.content[0].type === 'text' ? response.content[0].text : '';
   } catch {
-    return "I'd be happy to help you plan your trip. Could you tell me where you'd like to go?";
+    return language === 'hi' ? "Main aapki madad kar sakta hoon. Aap kahan jaana chahte hain?" : 
+           language === 'hinglish' ? "Main aapki help kar sakta hoon plan karne mein. Aap kahan travel karna chahte hain?" :
+           "I'd be happy to help you plan your trip. Could you tell me where you'd like to go?";
   }
 }
 
@@ -288,7 +304,7 @@ async function generateVoiceResponse(prompt: string, transcript: ConversationTur
 export async function handleManagerMessage(
   message: string,
   travelerId: string,
-  options: { gps?: { lat: number; lng: number }; payment_method?: string } = {},
+  options: { gps?: { lat: number; lng: number }; payment_method?: string; language?: string } = {},
 ): Promise<ManagerResponse> {
   const correlationId = createCorrelationId();
   const session = await getOrCreateSession(travelerId);
@@ -307,7 +323,8 @@ export async function handleManagerMessage(
     session.step = 'REQUIREMENT_GATHERING';
     voiceText = await generateVoiceResponse(
       `The traveler just started the interaction. Greet them warmly and ask where they'd like to travel. Be enthusiastic but brief.`,
-      []
+      [],
+      options.language
     );
     mappedIntent = 'PLANNING';
   }
@@ -363,18 +380,40 @@ export async function handleManagerMessage(
     if (missing.length > 0) {
       voiceText = await generateVoiceResponse(
         `We're collecting trip details. We have: ${JSON.stringify(session.structured_inputs)}. Still need: ${missing.join(', ')}. The traveler just said: "${message}". Ask for the missing info conversationally.`,
-        session.transcript
+        session.transcript,
+        options.language
       );
     } else {
       // All required fields collected — move to orchestration
       session.step = 'ORCHESTRATION';
       voiceText = await generateVoiceResponse(
         `We have all trip details for ${session.structured_inputs.destination}. Budget: ${session.structured_inputs.budget?.amount} ${session.structured_inputs.budget?.currency}. Party: ${session.structured_inputs.party_size}. Give a brief acknowledgment and tell them you're now crafting their perfect plan.`,
-        session.transcript
+        session.transcript,
+        options.language
       );
 
       // Start orchestration in background
       (async () => {
+        let isDone = false;
+        
+        // Progress sequence
+        const updates = [
+          'Consulting flight agent...',
+          'Checking hotel availability...',
+          'Coordinating transport...',
+          'Reviewing budget constraints...',
+          'Generating optimal itinerary...',
+        ];
+        
+        const updateInterval = setInterval(() => {
+          if (isDone) {
+            clearInterval(updateInterval);
+            return;
+          }
+          const next = updates.shift();
+          if (next) Object.assign(session, { orchestration_status: next });
+        }, 1500);
+
         try {
           const tripReq = {
             ...session.structured_inputs,
@@ -382,11 +421,17 @@ export async function handleManagerMessage(
             traveler_id: travelerId,
           } as TripRequest;
 
+          session.orchestration_status = 'Initiating sub-agents...';
           const result = await orchestrateTrip(tripReq);
+          
+          isDone = true;
+          session.orchestration_status = 'Plan ready!';
           session.itinerary = result.itinerary;
           session.budget_dashboard = result.budget;
           session.step = 'PLAN_GENERATION';
         } catch (err) {
+          isDone = true;
+          session.orchestration_status = 'Plan ready!';
           console.error('[Manager] Orchestration failed:', err);
           // Generate mock itinerary for demo
           session.itinerary = generateMockItinerary(session.structured_inputs);
@@ -406,10 +451,13 @@ export async function handleManagerMessage(
       const days = Array.isArray(session.itinerary) ? session.itinerary.length : 0;
       voiceText = await generateVoiceResponse(
         `The plan is ready! It's a ${days}-day itinerary for ${session.structured_inputs.destination}. Budget: ${session.structured_inputs.budget?.amount} ${session.structured_inputs.budget?.currency}. Summarize the highlights in 2-3 sentences for voice. Tell them to check the visual dashboard for full details and ask if they'd like any changes.`,
-        session.transcript
+        session.transcript,
+        options.language
       );
     } else {
-      voiceText = "I'm still putting together the perfect plan for you. Give me just a moment, I'm coordinating with our specialist agents.";
+      voiceText = options.language === 'hi' ? "Main aapke liye perfect plan taiyaar kar raha hoon. Bas ek minute, main hamare specialist agents se coordinate kar raha hoon." :
+                  options.language === 'hinglish' ? "Main aapke liye perfect plan ready kar raha hoon. Bas ek minute, main specialist agents ke saath coordinate kar raha hoon." :
+                  "I'm still putting together the perfect plan for you. Give me just a moment, I'm coordinating with our specialist agents.";
     }
   }
 
@@ -421,17 +469,21 @@ export async function handleManagerMessage(
       session.step = 'CONFIRMATION';
       const amount = session.structured_inputs.budget?.amount?.toLocaleString('en-IN') || '0';
       const currency = session.structured_inputs.budget?.currency || 'INR';
-      voiceText = `Wonderful! Before I proceed with booking, I need your explicit confirmation. The total comes to ${currency} ${amount} for your ${session.structured_inputs.destination} trip. Shall I go ahead and process the payment?`;
+      voiceText = options.language === 'hi' ? `Bahut achha! Booking se pehle, mujhe aapki explicit confirmation chahiye. Aapke ${session.structured_inputs.destination} trip ka total cost ${currency} ${amount} hai. Kya main payment process karoon?` :
+                  options.language === 'hinglish' ? `Wonderful! Booking se pehle, mujhe aapki confirmation chahiye. Aapke ${session.structured_inputs.destination} trip ka total ${currency} ${amount} hai. Kya main payment process karoon?` :
+                  `Wonderful! Before I proceed with booking, I need your explicit confirmation. The total comes to ${currency} ${amount} for your ${session.structured_inputs.destination} trip. Shall I go ahead and process the payment?`;
     } else if (intent === 'REJECT') {
       voiceText = await generateVoiceResponse(
         `The user wants to change the plan. They said: "${message}". Acknowledge their feedback warmly and ask what specifically they'd like changed. We'll re-orchestrate after getting their feedback.`,
-        session.transcript
+        session.transcript,
+        options.language
       );
       // Stay in USER_DECISION_LOOP; next iteration will re-gather and re-orchestrate
     } else {
       voiceText = await generateVoiceResponse(
         `The user is reviewing the plan and said: "${message}". They may have a question about the itinerary or want to know more. Answer helpfully and remind them they can approve or request changes.`,
-        session.transcript
+        session.transcript,
+        options.language
       );
     }
   }
@@ -525,7 +577,8 @@ export async function handleManagerMessage(
     mappedIntent = 'GENERAL';
     voiceText = await generateVoiceResponse(
       `The booking is complete. Booking ID: ${session.booking_confirmation?.booking_id}. The user said: "${message}". They might have follow-up questions. Answer warmly and wish them well on their trip.`,
-      session.transcript
+      session.transcript,
+      options.language
     );
   }
 
@@ -533,7 +586,8 @@ export async function handleManagerMessage(
   else {
     voiceText = await generateVoiceResponse(
       `The user said: "${message}". Respond helpfully as the Manager Agent.`,
-      session.transcript
+      session.transcript,
+      options.language
     );
   }
 

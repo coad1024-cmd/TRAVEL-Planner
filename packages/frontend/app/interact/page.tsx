@@ -23,6 +23,7 @@ interface VisualState {
   payment_status: string;
   payment_method: string | null;
   booking_confirmation: any | null;
+  orchestration_status?: string;
 }
 
 interface ManagerResponse {
@@ -34,7 +35,7 @@ interface ManagerResponse {
 
 // ─── Voice Hook ──────────────────────────────────────────
 
-function useVoice() {
+function useVoice(language: string = 'en') {
   const [isListening, setIsListening] = useState(false);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [transcript, setTranscript] = useState('');
@@ -50,7 +51,7 @@ function useVoice() {
         const recognition = new SpeechRecognition();
         recognition.continuous = false;
         recognition.interimResults = true;
-        recognition.lang = 'en-US';
+        recognition.lang = language === 'hi' ? 'hi-IN' : 'en-US';
 
         recognition.onresult = (event: any) => {
           let finalTranscript = '';
@@ -77,7 +78,7 @@ function useVoice() {
         recognitionRef.current = recognition;
       }
     }
-  }, []);
+  }, [language]);
 
   const startListening = useCallback(() => {
     if (recognitionRef.current && !isListening && !isSpeaking) {
@@ -100,13 +101,24 @@ function useVoice() {
     if (!voiceEnabled || !synthRef.current) return;
     synthRef.current.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
+    
+    // Select voice based on language
+    const voices = synthRef.current.getVoices();
+    if (language === 'hi' || language === 'hinglish') {
+      const hiVoice = voices.find(v => v.lang.startsWith('hi')) || voices.find(v => v.lang.startsWith('en-IN'));
+      if (hiVoice) utterance.voice = hiVoice;
+    } else {
+      const enVoice = voices.find(v => v.lang.startsWith('en-US')) || voices.find(v => v.lang.startsWith('en'));
+      if (enVoice) utterance.voice = enVoice;
+    }
+
     utterance.rate = 0.95;
     utterance.pitch = 1;
     utterance.onstart = () => setIsSpeaking(true);
     utterance.onend = () => setIsSpeaking(false);
     utterance.onerror = () => setIsSpeaking(false);
     synthRef.current.speak(utterance);
-  }, [voiceEnabled]);
+  }, [voiceEnabled, language]);
 
   const stopSpeaking = useCallback(() => {
     if (synthRef.current) {
@@ -209,10 +221,67 @@ export default function InteractPage() {
   const [textInput, setTextInput] = useState('');
   const [expandedDays, setExpandedDays] = useState<Set<number>>(new Set([1]));
   const [selectedPayment, setSelectedPayment] = useState<string | null>(null);
+  const [language, setLanguage] = useState<'en' | 'hi' | 'hinglish'>('en');
   const chatEndRef = useRef<HTMLDivElement>(null);
 
-  const voice = useVoice();
+  const voice = useVoice(language);
 
+  // ─── Real-time Sync (SSE / Polling Fallback) ───────────
+  useEffect(() => {
+    if (!started || !travelerId) return;
+
+    let eventSource: EventSource | null = null;
+    let pollInterval: NodeJS.Timeout | null = null;
+
+    if (typeof window !== 'undefined' && typeof window.EventSource !== 'undefined') {
+      eventSource = new EventSource(`/api/interact/stream?travelerId=${travelerId}`);
+      
+      eventSource.onmessage = (e) => {
+        try {
+          const state: VisualState = JSON.parse(e.data);
+          setVisualState(prev => {
+            // When moving from ORCHESTRATION to PLAN_GENERATION, trigger the backend to speak the plan
+            if (prev && prev.step === 'ORCHESTRATION' && state.step === 'PLAN_GENERATION') {
+              setTimeout(() => {
+                sendMessage(''); // Send an empty message to trigger the voice response
+              }, 500);
+            }
+            return state;
+          });
+        } catch (err) {}
+      };
+
+      eventSource.onerror = () => {
+        // Will auto-reconnect or fail gracefully
+      };
+    } else {
+      // Fallback
+      pollInterval = setInterval(async () => {
+        try {
+          const res = await fetch(`/api/interact/stream?travelerId=${travelerId}&poll=true`);
+          const text = await res.text();
+          const match = text.match(/data: (.*)\n\n/);
+          if (match && match[1]) {
+            const state: VisualState = JSON.parse(match[1]);
+            setVisualState(prev => {
+              if (prev && prev.step === 'ORCHESTRATION' && state.step === 'PLAN_GENERATION') {
+                setTimeout(() => {
+                  sendMessage('');
+                }, 500);
+              }
+              return state;
+            });
+          }
+        } catch(err) {}
+      }, 3000);
+    }
+
+    return () => {
+      if (eventSource) eventSource.close();
+      if (pollInterval) clearInterval(pollInterval);
+    };
+  }, [started, travelerId]);
+  
   // Auto-scroll transcript
   useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -229,6 +298,7 @@ export default function InteractPage() {
         body: JSON.stringify({
           message: message.trim(),
           travelerId,
+          language,
           ...(paymentMethod && { payment_method: paymentMethod }),
         }),
       });
@@ -244,7 +314,7 @@ export default function InteractPage() {
     } finally {
       setLoading(false);
     }
-  }, [travelerId, voice]);
+  }, [travelerId, voice, language]);
 
   // Handle start interaction
   const handleStart = useCallback(async () => {
@@ -387,9 +457,27 @@ export default function InteractPage() {
 
           {/* Voice / mute controls */}
           <div className="flex items-center gap-3 mt-3">
+            <div className="flex bg-muted rounded-lg p-1">
+              {[
+                { id: 'en', label: 'EN' },
+                { id: 'hi', label: 'HI' },
+                { id: 'hinglish', label: 'HIN' }
+              ].map(lang => (
+                <button
+                  key={lang.id}
+                  onClick={() => setLanguage(lang.id as any)}
+                  className={cn(
+                    "px-3 py-1 text-[10px] font-bold rounded-md transition-all",
+                    language === lang.id ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {lang.label}
+                </button>
+              ))}
+            </div>
             <button
               onClick={() => voice.setVoiceEnabled(!voice.voiceEnabled)}
-              className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground"
+              className="p-2 rounded-lg hover:bg-muted transition-colors text-muted-foreground ml-2"
               title={voice.voiceEnabled ? "Mute voice" : "Enable voice"}
             >
               {voice.voiceEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
@@ -476,7 +564,12 @@ export default function InteractPage() {
           <div className="mt-2 text-xs text-muted-foreground">
             {step === 'INIT' && 'Starting...'}
             {step === 'REQUIREMENT_GATHERING' && 'Collecting your preferences'}
-            {step === 'ORCHESTRATION' && 'Coordinating specialist agents'}
+            {step === 'ORCHESTRATION' && (
+              <span className="flex items-center gap-2">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                {visualState?.orchestration_status || 'Coordinating specialist agents...'}
+              </span>
+            )}
             {step === 'PLAN_GENERATION' && 'Generating your itinerary'}
             {step === 'USER_DECISION_LOOP' && 'Review your plan'}
             {step === 'CONFIRMATION' && 'Awaiting your confirmation'}

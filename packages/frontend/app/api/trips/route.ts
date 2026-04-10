@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { orchestrateTrip } from '@travel/orchestrator';
-import { saveTrip } from '@/lib/trip-store';
+import { saveTrip, getTrips } from '@/lib/trip-store';
 import { randomUUID } from 'crypto';
+
+export async function GET() {
+  try {
+    const trips = await getTrips();
+    return NextResponse.json(trips);
+  } catch (err) {
+    return NextResponse.json({ error: 'Failed to fetch trips' }, { status: 500 });
+  }
+}
 
 export async function POST(request: NextRequest) {
   try {

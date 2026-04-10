@@ -145,27 +145,62 @@ async function fetchNearbyHospitals(lat: number, lng: number, radiusKm: number, 
 
 const server = new McpServer({ name: 'mcp-safety', version: '1.0.0' });
 
+async function fetchTravelAdvisory(code: string): Promise<TravelAdvisory> {
+  const cacheKey = `advisory:${code}`;
+  const cached = advisoryCache.get(cacheKey) as TravelAdvisory | undefined;
+  if (cached) return cached;
+
+  // 1. High-fidelity Local Fallback (JK/IN) — prioritized for demo
+  if (code === 'JK' || (code === 'IN' && !process.env.ENABLE_REAL_ADVISORY)) {
+    return ADVISORIES[code] ?? ADVISORIES.IN;
+  }
+
+  return await cb.execute(async () => {
+    try {
+      const res = await fetch(`https://www.travel-advisory.info/api?country=${code}`);
+      if (!res.ok) throw new Error(`Travel-Advisory API error: ${res.status}`);
+      
+      const data = await res.json() as { data?: Record<string, { advisory?: { score?: number; message?: string; updated?: string; sources_active?: number } }> };
+      const country = data.data?.[code];
+      
+      if (!country || !country.advisory) {
+        throw new Error(`No advisory data found for country: ${code}`);
+      }
+
+      const score = country.advisory.score ?? 0;
+      // Map 0-5 score to 1-4 level
+      const level = score >= 4.5 ? 4 : score >= 3.5 ? 3 : score >= 2.5 ? 2 : 1;
+
+      const advisory: TravelAdvisory = {
+        country_code: code,
+        level,
+        summary: country.advisory.message ?? 'Exercise normal precautions.',
+        last_updated: country.advisory.updated?.slice(0, 10) ?? new Date().toISOString().slice(0, 10),
+        source_url: `https://www.travel-advisory.info/${code.toLowerCase()}`,
+      };
+
+      advisoryCache.set(cacheKey, advisory);
+      return advisory;
+    } catch (err) {
+      // Final Fallback
+      return ADVISORIES[code] ?? {
+        country_code: code,
+        level: 1,
+        summary: 'No specific advisory. Exercise normal precautions.',
+        last_updated: new Date().toISOString().slice(0, 10),
+        source_url: 'https://travel.state.gov/',
+      };
+    }
+  });
+}
+
 server.tool(
   'get_travel_advisory',
   'Get official travel advisory for a country.',
-  { country_code: z.string().describe('ISO 3166 country code (e.g. IN, JK)') },
+  { country_code: z.string().describe('ISO 3166-1 alpha-2 country code (e.g. IN, JK)') },
   async (input) => {
     const code = input.country_code.toUpperCase();
-    const cacheKey = `advisory:${code}`;
-    const cached = advisoryCache.get(cacheKey);
-    if (cached) {
-      return { content: [{ type: 'text', text: JSON.stringify(cached) }] };
-    }
-
-    const advisory = ADVISORIES[code] ?? {
-      country_code: code,
-      level: 1,
-      summary: 'No specific advisory. Exercise normal precautions.',
-      last_updated: new Date().toISOString().slice(0, 10),
-      source_url: 'https://travel.state.gov/',
-    } satisfies TravelAdvisory;
-
-    advisoryCache.set(cacheKey, advisory);
+    const advisory = await fetchTravelAdvisory(code);
     return { content: [{ type: 'text', text: JSON.stringify(advisory) }] };
   }
 );

@@ -163,6 +163,7 @@ export interface TravelerProfile {
   }[];
   trip_history: string[]; // trip IDs
   loyalty_tier: 'bronze' | 'silver' | 'gold' | 'platinum';
+  language?: 'en' | 'hi' | 'hinglish';
   created_at: string;
   updated_at: string;
 }

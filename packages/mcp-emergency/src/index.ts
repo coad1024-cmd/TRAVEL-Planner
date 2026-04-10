@@ -2,8 +2,10 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';
 import { LRUCache } from './cache.js';
+import { CircuitBreaker } from './circuit-breaker.js';
 
 const cache = new LRUCache<unknown>(200, 24 * 60 * 60 * 1000); // 24hr
+const cb = new CircuitBreaker();
 
 // ============================================================
 // Hardcoded seeded database for India / Jammu & Kashmir
@@ -221,25 +223,54 @@ server.tool(
   }
 );
 
+async function fetchEmergencyNumbers(code: string): Promise<EmergencyNumbers> {
+  const cacheKey = `emergency_numbers:${code}`;
+  const cached = cache.get(cacheKey) as EmergencyNumbers | undefined;
+  if (cached) return cached;
+
+  // 1. Local Fallback for demo regions (Priority)
+  if (code === 'JK' || (code === 'IN' && !process.env.ENABLE_REAL_EMERGENCY)) {
+    return EMERGENCY_NUMBERS[code] ?? EMERGENCY_NUMBERS.IN;
+  }
+
+  return await cb.execute(async () => {
+    try {
+      const res = await fetch(`https://emergencynumberapi.com/api/country/${code}`);
+      if (!res.ok) throw new Error(`EmergencyNumberAPI error: ${res.status}`);
+      
+      const data = await res.json() as { data?: { police?: { all?: string[] }; ambulance?: { all?: string[] }; fire?: { all?: string[] } } };
+      const d = data.data;
+
+      if (!d) throw new Error(`No data found for country: ${code}`);
+
+      const numbers: EmergencyNumbers = {
+        police: d.police?.all?.[0] ?? '100',
+        ambulance: d.ambulance?.all?.[0] ?? '108',
+        fire: d.fire?.all?.[0] ?? '101',
+        last_verified: new Date().toISOString().slice(0, 10),
+      };
+
+      cache.set(cacheKey, numbers);
+      return numbers;
+    } catch (err) {
+      // Final Fallback to local defaults
+      return EMERGENCY_NUMBERS[code] ?? EMERGENCY_NUMBERS.DEFAULT;
+    }
+  });
+}
+
 server.tool(
   'get_emergency_numbers',
   'Get emergency contact numbers for a country/region.',
   { country_code: z.string().describe('ISO 3166-1 alpha-2 country code (e.g. IN, JK)') },
   async (input) => {
     const code = input.country_code.toUpperCase();
-    const cacheKey = `emergency_numbers:${code}`;
-    const cached = cache.get(cacheKey);
-    if (cached) {
-      return { content: [{ type: 'text', text: JSON.stringify(cached) }] };
-    }
-
-    const numbers = EMERGENCY_NUMBERS[code] ?? EMERGENCY_NUMBERS.DEFAULT;
+    const numbers = await fetchEmergencyNumbers(code);
     const result = {
       country_code: code,
       ...numbers,
       staleness_warning: buildStalenessWarning(numbers.last_verified),
     };
-    cache.set(cacheKey, result);
     return { content: [{ type: 'text', text: JSON.stringify(result) }] };
   }
 );

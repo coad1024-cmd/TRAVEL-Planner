@@ -17,6 +17,7 @@ async function test() {
       },
       party_size: 2,
       purpose: 'family',
+
       preferences: {
         activity_level: 'moderate',
         must_include: ['Eiffel Tower', 'Louvre'],
